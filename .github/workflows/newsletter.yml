@@ -1,0 +1,31 @@
+name: EM Weekly Digest
+
+on:
+  schedule:
+    - cron: '0 7 * * 3'  # ogni mercoledì alle 7:00 UTC
+  workflow_dispatch:       # permette lancio manuale da GitHub
+
+jobs:
+  invia-newsletter:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Installa Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Installa dipendenze
+        run: |
+          pip install google-auth-oauthlib google-auth-httplib2 google-api-python-client
+
+      - name: Aggiorna API key in config.py
+        run: |
+          sed -i "s|ANTHROPIC_API_KEY  = \".*\"|ANTHROPIC_API_KEY  = \"${{ secrets.ANTHROPIC_API_KEY }}\"|" config.py
+          sed -i "s|GMAIL_USER         = \".*\"|GMAIL_USER         = \"${{ secrets.GMAIL_USER }}\"|" config.py
+
+      - name: Esegui newsletter
+        run: python newsletter_rss.py
