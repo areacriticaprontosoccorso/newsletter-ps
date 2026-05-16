@@ -2,7 +2,7 @@ name: EM Weekly Digest
 
 on:
   schedule:
-    - cron: '0 7 * * 3'  # ogni mercoledì alle 7:00 UTC
+    - cron: '0 7 * * 1'  # ogni lunedì alle 7:00 UTC (= 8:00 ora italiana invernale, 9:00 ora legale)
   workflow_dispatch:       # permette lancio manuale
 
 jobs:
