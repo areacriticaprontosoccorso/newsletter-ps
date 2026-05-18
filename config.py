@@ -13,7 +13,8 @@ import os
 # ═══════════════════════════════════════════════════════════════════════════════
 
 ANTHROPIC_API_KEY  = os.environ.get("ANTHROPIC_API_KEY", "")
-ANTHROPIC_MODEL    = "claude-3-5-sonnet-20241022"
+ANTHROPIC_MODEL    = "claude-haiku-4-5-20251001"
+
 
 GMAIL_USER         = os.environ.get("GMAIL_USER", "")
 GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "")
