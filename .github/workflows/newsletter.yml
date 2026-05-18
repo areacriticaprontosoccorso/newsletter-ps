@@ -2,8 +2,8 @@ name: EM Weekly Digest
 
 on:
   schedule:
-    - cron: '0 7 * * 1'  # ogni lunedì alle 7:00 UTC (= 8:00 ora italiana invernale, 9:00 ora legale)
-  workflow_dispatch:       # permette lancio manuale
+    - cron: '0 7 * * 1'
+  workflow_dispatch:
 
 jobs:
   invia-newsletter:
@@ -22,13 +22,10 @@ jobs:
         run: |
           pip install google-auth-oauthlib google-auth-httplib2 google-api-python-client
 
-      - name: Verifica file presenti
-        run: ls -la
-
-      - name: Aggiorna credenziali in config.py
-        run: |
-          sed -i "s|ANTHROPIC_API_KEY  = \".*\"|ANTHROPIC_API_KEY  = \"${{ secrets.ANTHROPIC_API_KEY }}\"|" config.py
-          sed -i "s|GMAIL_USER         = \".*\"|GMAIL_USER         = \"${{ secrets.GMAIL_USER }}\"|" config.py
-
       - name: Esegui newsletter
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          NCBI_EMAIL: ${{ secrets.NCBI_EMAIL }}
         run: python newsletter_rss.py
