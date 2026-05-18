@@ -23,6 +23,7 @@ import config as cfg
 
 DESTINATARI = [
     "francesco.panero@aslcittaditorino.it",
+    "S.C.Medicinad'EmergenzaeUrgenza@aslcittaditorino.it",
 ]
 
 TIPI_ESCLUSI = [
