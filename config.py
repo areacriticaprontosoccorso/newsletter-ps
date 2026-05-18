@@ -12,16 +12,16 @@ import os
 # CREDENZIALI (lette da variabili d'ambiente — MAI hardcoded)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-ANTHROPIC_API_KEY  = "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"
+ANTHROPIC_API_KEY  = os.environ.get("ANTHROPIC_API_KEY", "")
 ANTHROPIC_MODEL    = "claude-opus-4-5"
 
-GMAIL_USER         = "areacriticaprontosoccorso@gmail.com"
-GMAIL_APP_PASSWORD = "sxrveyvxkgbdppxa"
+GMAIL_USER         = os.environ.get("GMAIL_USER", "")
+GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "")
 RESPONSABILE_EMAIL = "francesco.panero@aslcittaditorino.it"
 MCP_AUTH_TOKEN     = ""
 GOOGLE_SHEET_ID    = ""
-GOOGLE_CREDS_FILE  = "google_credentials.json"  # file JSON service account
-NCBI_EMAIL         = "francesco.panero@aslcittaditorino.it"
+GOOGLE_CREDS_FILE  = "google_credentials.json"
+NCBI_EMAIL         = os.environ.get("NCBI_EMAIL", "francesco.panero@aslcittaditorino.it")
 NCBI_TOOL          = "em_weekly_digest_torino"
 
 
