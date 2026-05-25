@@ -146,10 +146,10 @@ def valida_config():
     mancanti = []
     if not ANTHROPIC_API_KEY: mancanti.append("ANTHROPIC_API_KEY")
     if not GMAIL_USER:        mancanti.append("GMAIL_USER")
-    if not GMAIL_APP_PASSWORD:mancanti.append("GMAIL_APP_PASSWORD")
     if mancanti:
         raise RuntimeError(
             f"Variabili d'ambiente mancanti: {', '.join(mancanti)}.\n"
             "Configurale prima di eseguire lo script."
         )
     return True
+
