@@ -10,7 +10,6 @@ import re
 import json
 import time
 import logging
-import smtplib
 import base64
 import urllib.request
 import urllib.error
@@ -24,12 +23,6 @@ import config as cfg
 DESTINATARI = [
     "francesco.panero@aslcittaditorino.it",
     "S.C.Medicinad'EmergenzaeUrgenza@aslcittaditorino.it",
-]
-
-TIPI_ESCLUSI = [
-    "Case Reports", "Letter", "Comment", "Editorial Comment",
-    "Published Erratum", "Correction", "Retraction", "News",
-    "Biography", "Personal Narrative",
 ]
 
 logging.basicConfig(
@@ -169,7 +162,7 @@ def raccogli_candidati(giorni=7):
             a for a in feed
             if a["pubdate_dt"] and a["pubdate_dt"].astimezone(timezone.utc) >= cutoff
         ]
-        log.info(f"    → {len(recenti)} pubblicati negli ultimi {giorni}g")
+        log.info(f"    -> {len(recenti)} pubblicati negli ultimi {giorni}g")
         tutti.extend(recenti)
         time.sleep(0.3)
     seen = set()
@@ -210,7 +203,7 @@ def chiama_opus(prompt, max_tokens=1500):
 
 PROMPT_FILTRO_RSS = """Sei un medico di Pronto Soccorso italiano.
 
-Dalla lista qui sotto, seleziona i 5 articoli più rilevanti per la pratica clinica
+Dalla lista qui sotto, seleziona i 5 articoli piu rilevanti per la pratica clinica
 in Pronto Soccorso, Medicina d'Urgenza, Rianimazione e Terapia Intensiva.
 
 ESCLUDI TASSATIVAMENTE questi tipi di pubblicazione:
@@ -257,7 +250,7 @@ def filtra_top_articoli(candidati):
             f"ABSTRACT: {a['abstract'][:700]}"
         )
     prompt = PROMPT_FILTRO_RSS.format(articoli="\n\n---\n\n".join(blocchi))
-    log.info(f"Opus filtra {len(candidati)} → {cfg.ARTICOLI_FINALI}")
+    log.info(f"Opus filtra {len(candidati)} -> {cfg.ARTICOLI_FINALI}")
     risposta = chiama_opus(prompt, max_tokens=200)
     pmids_sel = re.findall(r"\b\d{7,9}\b", risposta)[:cfg.ARTICOLI_FINALI]
     log.info(f"Opus selezionati: {pmids_sel}")
@@ -398,9 +391,11 @@ def invia_email(oggetto, html):
     from google.oauth2.credentials import Credentials
     from googleapiclient.discovery import build
 
-    token_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'gmail_token.json')
-    with open(token_file) as f:
-        token_data = json.load(f)
+    token_json = os.environ.get("GMAIL_TOKEN", "")
+    if not token_json:
+        log.error("GMAIL_TOKEN non trovato nei secrets")
+        return False
+    token_data = json.loads(token_json)
 
     creds = Credentials(
         token=token_data['token'],
@@ -415,7 +410,6 @@ def invia_email(oggetto, html):
     msg["Subject"] = oggetto
     msg["From"]    = f"EM Weekly Digest <{cfg.GMAIL_USER}>"
     msg["To"]      = ", ".join(DESTINATARI)
-    msg["Bcc"]     = ""
 
     msg.attach(MIMEText(f"EM Weekly Digest — {oggetto}\nApri in HTML.", "plain", "utf-8"))
     msg.attach(MIMEText(html, "html", "utf-8"))
