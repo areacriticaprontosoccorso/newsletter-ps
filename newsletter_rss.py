@@ -192,13 +192,28 @@ def chiama_opus(prompt, max_tokens=1500):
         },
         method="POST",
     )
-    try:
-        with urllib.request.urlopen(req, timeout=90) as r:
-            data = json.loads(r.read().decode("utf-8"))
-        return data["content"][0]["text"].strip()
-    except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8")
-        raise RuntimeError(f"Anthropic API errore {e.code}: {body[:400]}")
+    # Retry con backoff su rate-limit (429) e errori server transitori (5xx).
+    ultimo_errore = None
+    for attempt in range(4):
+        try:
+            with urllib.request.urlopen(req, timeout=90) as r:
+                data = json.loads(r.read().decode("utf-8"))
+            return data["content"][0]["text"].strip()
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8")
+            ultimo_errore = f"Anthropic API errore {e.code}: {body[:400]}"
+            if e.code == 429 or 500 <= e.code < 600:
+                attesa = 2 ** attempt
+                log.warning(f"{ultimo_errore} — retry tra {attesa}s ({attempt+1}/4)")
+                time.sleep(attesa)
+                continue
+            raise RuntimeError(ultimo_errore)
+        except urllib.error.URLError as e:
+            ultimo_errore = f"Anthropic API errore di rete: {e}"
+            attesa = 2 ** attempt
+            log.warning(f"{ultimo_errore} — retry tra {attesa}s ({attempt+1}/4)")
+            time.sleep(attesa)
+    raise RuntimeError(ultimo_errore or "Anthropic API: fallito dopo i retry")
 
 
 PROMPT_FILTRO_RSS = """Sei un medico di Pronto Soccorso italiano.
@@ -251,11 +266,35 @@ def filtra_top_articoli(candidati):
         )
     prompt = PROMPT_FILTRO_RSS.format(articoli="\n\n---\n\n".join(blocchi))
     log.info(f"Opus filtra {len(candidati)} -> {cfg.ARTICOLI_FINALI}")
-    risposta = chiama_opus(prompt, max_tokens=200)
-    pmids_sel = re.findall(r"\b\d{7,9}\b", risposta)[:cfg.ARTICOLI_FINALI]
+    try:
+        risposta = chiama_opus(prompt, max_tokens=200)
+        pmids_sel = re.findall(r"\b\d{7,9}\b", risposta)[:cfg.ARTICOLI_FINALI]
+    except Exception as e:
+        log.error(f"Filtro Opus fallito ({e}); uso fallback per data")
+        pmids_sel = []
     log.info(f"Opus selezionati: {pmids_sel}")
     map_pmid = {a["pmid"]: a for a in candidati}
     selezionati = [map_pmid[p] for p in pmids_sel if p in map_pmid]
+
+    # Fallback: se Opus restituisce meno di ARTICOLI_FINALI articoli validi
+    # (PMID allucinati, risposta vuota o errore), completa con i candidati
+    # piu recenti non ancora selezionati, così il digest parte comunque.
+    if len(selezionati) < cfg.ARTICOLI_FINALI:
+        log.warning(
+            f"Filtro ha prodotto solo {len(selezionati)}/{cfg.ARTICOLI_FINALI} "
+            "articoli validi — completo con i piu recenti"
+        )
+        gia_scelti = {a["pmid"] for a in selezionati}
+        restanti = [a for a in candidati if a["pmid"] not in gia_scelti]
+        restanti.sort(
+            key=lambda a: a["pubdate_dt"] or datetime.min.replace(tzinfo=timezone.utc),
+            reverse=True,
+        )
+        for a in restanti:
+            if len(selezionati) >= cfg.ARTICOLI_FINALI:
+                break
+            selezionati.append(a)
+
     return selezionati
 
 
@@ -376,7 +415,7 @@ def build_html(articoli):
       <tr>
         <td style="background:{cfg.COLOR_DARK};padding:22px 32px;">
           <p style="font-family:monospace;font-size:10px;color:#555;margin:0;line-height:1.8;">
-            Generato con Claude Opus 4.5 (Anthropic) &middot; Fonte dati: PubMed RSS feeds<br/>
+            Generato con {cfg.ANTHROPIC_MODEL} (Anthropic) &middot; Fonte dati: PubMed RSS feeds<br/>
             Le sintesi sono prodotte da AI e devono essere verificate prima dell'applicazione clinica.<br/>
             Per cancellarsi rispondere con oggetto UNSUBSCRIBE.
           </p>
@@ -391,7 +430,7 @@ def invia_email(oggetto, html):
     from google.oauth2.credentials import Credentials
     from googleapiclient.discovery import build
 
-    token_json = os.environ.get("GMAIL_TOKEN", "")
+    token_json = cfg.GMAIL_TOKEN
     if not token_json:
         log.error("GMAIL_TOKEN non trovato nei secrets")
         return False
@@ -445,10 +484,10 @@ def main():
     log.info(f"Selezionati {len(selezionati)} articoli finali")
 
     if not selezionati:
-        log.error("Filtro Opus non ha selezionato nessun articolo")
+        log.error("Filtro non ha selezionato nessun articolo")
         return False
 
-    log.info("Sintesi con Claude Opus…")
+    log.info("Sintesi con Claude…")
     for i, art in enumerate(selezionati):
         log.info(f"  Sintesi {i+1}/{len(selezionati)}: PMID {art['pmid']}")
         selezionati[i] = sintetizza_articolo(art)
