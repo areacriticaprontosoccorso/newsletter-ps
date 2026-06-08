@@ -1,8 +1,14 @@
 name: EM Weekly Digest
 
+# Trigger: ESCLUSIVAMENTE esterno via workflow_dispatch.
+# Lo scheduling è gestito da cron-job.org, che chiama l'endpoint GitHub:
+#   POST https://api.github.com/repos/<owner>/<repo>/actions/workflows/newsletter.yml/dispatches
+#   body: {"ref": "main"}
+# cron-job.org va configurato su LUNEDÌ 13:00 ora di Roma (gestisce il fuso/DST,
+# a differenza dei cron schedulati di GitHub Actions che sono solo in UTC).
+# Nessuno 'schedule' qui: cosi' il workflow non viene mai disattivato per
+# inattivita' e parte solo quando lo chiama cron-job.org (o un avvio manuale).
 on:
-  schedule:
-    - cron: '0 7 * * 1'
   workflow_dispatch:
 
 jobs:
@@ -11,12 +17,15 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
       - name: Installa Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
       - name: Installa dipendenze
         run: pip install google-auth-oauthlib google-auth-httplib2 google-api-python-client
+
       - name: Esegui newsletter
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
