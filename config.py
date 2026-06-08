@@ -3,7 +3,7 @@ EM Weekly Digest — Configurazione centralizzata
 Pronto Soccorso San Giovanni Bosco, Torino
 
 Tutti i parametri configurabili in un solo posto.
-Le credenziali vere stanno in variabili d'ambiente (.env / dashboard PythonAnywhere).
+Le credenziali vere stanno in variabili d'ambiente (secrets GitHub Actions).
 """
 
 import os
@@ -16,7 +16,8 @@ ANTHROPIC_API_KEY  = os.environ.get("ANTHROPIC_API_KEY", "")
 ANTHROPIC_MODEL    = "claude-sonnet-4-6"
 
 GMAIL_USER         = os.environ.get("GMAIL_USER", "")
-GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "")
+# Invio tramite OAuth2: il token completo (JSON) sta in GMAIL_TOKEN.
+GMAIL_TOKEN        = os.environ.get("GMAIL_TOKEN", "")
 RESPONSABILE_EMAIL = "francesco.panero@aslcittaditorino.it"
 MCP_AUTH_TOKEN     = ""
 GOOGLE_SHEET_ID    = ""
@@ -68,10 +69,10 @@ TIPI_PUBMED = [
     "Observational Study",
 ]
 
-# Schedulazione
-ORARIO_BOZZA      = "07:00"  # mercoledì
-ORARIO_INVIO      = "09:00"  # mercoledì
-TIMEOUT_APPROVAZIONE_MIN = 90  # se non approvi entro 90 min, niente invio
+# Schedulazione (trigger esterno via cron-job.org -> workflow_dispatch)
+# Lunedì 13:00 ora di Roma. Il fuso/DST è gestito da cron-job.org, non da GitHub.
+GIORNO_INVIO      = "lunedì"
+ORARIO_INVIO      = "13:00"  # ora di Roma; impostare cosi' su cron-job.org
 
 # Branding
 NOME_NEWSLETTER   = "EM Weekly Digest"
@@ -81,7 +82,7 @@ COLOR_DARK        = "#1a1a1a"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# PROMPT CLAUDE OPUS
+# PROMPT CLAUDE
 # ═══════════════════════════════════════════════════════════════════════════════
 
 PROMPT_FILTRO_RILEVANZA = """Sei un medico di Pronto Soccorso italiano. Devi selezionare i 5 articoli
@@ -146,10 +147,10 @@ def valida_config():
     mancanti = []
     if not ANTHROPIC_API_KEY: mancanti.append("ANTHROPIC_API_KEY")
     if not GMAIL_USER:        mancanti.append("GMAIL_USER")
+    if not GMAIL_TOKEN:       mancanti.append("GMAIL_TOKEN")
     if mancanti:
         raise RuntimeError(
             f"Variabili d'ambiente mancanti: {', '.join(mancanti)}.\n"
             "Configurale prima di eseguire lo script."
         )
     return True
-
