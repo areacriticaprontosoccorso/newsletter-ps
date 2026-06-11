@@ -23,6 +23,7 @@ import config as cfg
 DESTINATARI = [
     "francesco.panero@aslcittaditorino.it",
     "S.C.Medicinad'EmergenzaeUrgenza@aslcittaditorino.it",
+    "riccardo.raffaldi@aslcittaditorino.it",
 ]
 
 logging.basicConfig(
