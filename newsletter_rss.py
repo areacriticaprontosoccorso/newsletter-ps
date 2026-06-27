@@ -24,6 +24,7 @@ DESTINATARI = [
     "francesco.panero@aslcittaditorino.it",
     "S.C.Medicinad'EmergenzaeUrgenza@aslcittaditorino.it",
     "riccardo.raffaldi@aslcittaditorino.it",
+    "mperotto@aslcn2.it",
 ]
 
 logging.basicConfig(
