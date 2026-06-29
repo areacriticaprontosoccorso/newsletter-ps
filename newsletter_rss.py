@@ -417,7 +417,7 @@ def build_html(articoli):
       <tr>
         <td style="background:{cfg.COLOR_DARK};padding:22px 32px;">
           <p style="font-family:monospace;font-size:10px;color:#555;margin:0;line-height:1.8;">
-            Generato con {cfg.ANTHROPIC_MODEL} (Anthropic) &middot; Fonte dati: PubMed RSS feeds<br/>
+            Generato con {cfg.ANTHROPIC_MODEL} (Anthropic) a cura di Francesco Panero &middot; Fonte dati: PubMed RSS feeds<br/>
             Le sintesi sono prodotte da AI e devono essere verificate prima dell'applicazione clinica.<br/>
             Per cancellarsi rispondere con oggetto UNSUBSCRIBE.
           </p>
