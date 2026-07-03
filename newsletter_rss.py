@@ -392,7 +392,7 @@ def build_html(articoli):
                 </div>
                 <h1 style="font-family:Georgia,serif;font-size:32px;color:#ffffff;margin:0 0 6px;font-weight:700;letter-spacing:-0.5px;">
                   Emergency Medicine<br/>
-                  <em style="color:{cfg.COLOR_ACCENT};font-style:italic;">Weekly Digest</em>
+                  <em style="color:{cfg.COLOR_ACCENT};font-style:italic;">Weekly Digest a cura di Francesco Panero </em>
                 </h1>
                 <div style="font-family:monospace;font-size:11px;color:#666;">
                   Settimana {wl['settimana']} &middot; {wl['giorno']} {wl['mese']} {wl['anno']} &middot; {len(articoli)} articoli
