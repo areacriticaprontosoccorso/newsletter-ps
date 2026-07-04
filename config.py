@@ -1,20 +1,15 @@
 """
 EM Weekly Digest — Configurazione centralizzata
 Pronto Soccorso San Giovanni Bosco, Torino
-
 Tutti i parametri configurabili in un solo posto.
 Le credenziali vere stanno in variabili d'ambiente (secrets GitHub Actions).
 """
-
 import os
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # CREDENZIALI (lette da variabili d'ambiente — MAI hardcoded)
 # ═══════════════════════════════════════════════════════════════════════════════
-
 ANTHROPIC_API_KEY  = os.environ.get("ANTHROPIC_API_KEY", "")
 ANTHROPIC_MODEL    = "claude-sonnet-5"
-
 GMAIL_USER         = os.environ.get("GMAIL_USER", "")
 # Invio tramite OAuth2: il token completo (JSON) sta in GMAIL_TOKEN.
 GMAIL_TOKEN        = os.environ.get("GMAIL_TOKEN", "")
@@ -24,13 +19,9 @@ GOOGLE_SHEET_ID    = ""
 GOOGLE_CREDS_FILE  = "google_credentials.json"
 NCBI_EMAIL         = os.environ.get("NCBI_EMAIL", "francesco.panero@aslcittaditorino.it")
 NCBI_TOOL          = "em_weekly_digest_torino"
-
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # RIVISTE TARGET (12 — ordinate per impact factor decrescente)
 # ═══════════════════════════════════════════════════════════════════════════════
-
 RIVISTE = [
     {"nome": "New England Journal of Medicine", "nlmta": "N Engl J Med",       "issn": "0028-4793"},
     {"nome": "The Lancet",                      "nlmta": "Lancet",             "issn": "0140-6736"},
@@ -45,16 +36,12 @@ RIVISTE = [
     {"nome": "Academic Emergency Medicine",     "nlmta": "Acad Emerg Med",     "issn": "1069-6563"},
     {"nome": "Emergency Medicine Journal",      "nlmta": "Emerg Med J",        "issn": "1472-0205"},
 ]
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # PARAMETRI PIPELINE
 # ═══════════════════════════════════════════════════════════════════════════════
-
 GIORNI_RICERCA    = 7   # finestra temporale: ultimi 7 giorni (settimana)
 ARTICOLI_PER_RIVISTA = 5  # candidati da ogni rivista (prima del filtro rilevanza)
 ARTICOLI_FINALI   = 5   # numero articoli nel digest finale
-
 # Tipi di pubblicazione PubMed da includere (esclusi case report)
 TIPI_PUBMED = [
     "Journal Article",
@@ -68,23 +55,21 @@ TIPI_PUBMED = [
     "Practice Guideline",
     "Observational Study",
 ]
-
 # Schedulazione (trigger esterno via cron-job.org -> workflow_dispatch)
 # Lunedì 13:00 ora di Roma. Il fuso/DST è gestito da cron-job.org, non da GitHub.
 GIORNO_INVIO      = "lunedì"
 ORARIO_INVIO      = "13:00"  # ora di Roma; impostare cosi' su cron-job.org
-
 # Branding
 NOME_NEWSLETTER   = "EM Weekly Digest a cura di Francesco Panero"
 NOME_SERVIZIO     = "Area Critica e Pronto Soccorso · San Giovanni Bosco · Torino"
 COLOR_ACCENT      = "#c41e3a"  # rosso
 COLOR_DARK        = "#1a1a1a"
-
-
+# URL PUBBLICO del logo (vuoto = nessun logo). Deve puntare a un file immagine
+# raggiungibile pubblicamente (le email non supportano immagini locali/base64).
+LOGO_URL          = "https://raw.githubusercontent.com/areacriticaprontosoccorso/newsletter-ps/main/logo.jpg"
 # ═══════════════════════════════════════════════════════════════════════════════
 # PROMPT CLAUDE
 # ═══════════════════════════════════════════════════════════════════════════════
-
 PROMPT_FILTRO_RILEVANZA = """Sei un medico di Pronto Soccorso italiano. Devi selezionare i 5 articoli
 più rilevanti per la pratica clinica in Pronto Soccorso, Medicina d'Urgenza,
 Rianimazione e Terapia Intensiva, escludendo:
@@ -92,35 +77,26 @@ Rianimazione e Terapia Intensiva, escludendo:
   chirurgia elettiva, oncologia ambulatoriale)
 - editoriali generici non legati alla pratica acuta
 - corrispondenza, lettere, errata corrige
-
 Privilegiare:
 - studi clinici e trial su patologie d'urgenza (sepsi, trauma, ACS, stroke, ARDS, etc.)
 - linee guida e review su gestione acuta
 - novità terapeutiche/diagnostiche applicabili in PS o ICU
 - aggiornamenti su rianimazione cardiopolmonare e cure critiche
-
 Ecco la lista di articoli candidati. Per ognuno hai PMID, titolo, rivista e abstract.
-
 ARTICOLI CANDIDATI:
 {articoli}
-
 Restituisci SOLO una lista di 5 PMID, uno per riga, in ordine di rilevanza decrescente.
 Nessun commento, nessuna spiegazione, solo i 5 PMID.
-
 Esempio output:
 12345678
 23456789
 34567890
 45678901
 56789012"""
-
-
 PROMPT_SINTESI = """Sei un medico di Pronto Soccorso italiano, esperto di letteratura scientifica
 e di traduzione medico-scientifica dall'inglese all'italiano.
-
 Analizza l'articolo e produci un testo IN ITALIANO, con linguaggio medico-scientifico
 preciso, del registro usato nelle riviste italiane di area critica.
-
 REGOLE DI TRADUZIONE (obbligatorie):
 - Traduci il SIGNIFICATO clinico, mai parola per parola. Vietati i calchi dall'inglese.
 - Evita i falsi amici: "severe"=grave (non "severo"); "evidence"=prove/evidenze
@@ -138,34 +114,26 @@ REGOLE DI TRADUZIONE (obbligatorie):
 - Mantieni in forma originale le scale validate (GCS, SOFA, qSOFA, NEWS2, CURB-65).
 - Espandi ogni acronimo alla prima comparsa, poi usa la sigla.
 - Attieniti SOLO ai dati dell'abstract: non aggiungere, non inferire, non inventare.
-
 Produci:
 1. SINTESI: 3-4 frasi che rispondano a - quesito clinico, disegno e popolazione dello studio,
    risultato principale (con i numeri chiave), impatto per la pratica in PS/Area Critica.
 2. RILEVANZA: una sola frase sulla ricaduta pratica per il Pronto Soccorso o l'Area Critica.
-
 Articolo:
 Titolo: {titolo}
 Autori: {autori}
 Rivista: {rivista} ({data})
 Tipo pubblicazione: {tipo}
 Abstract: {abstract}
-
 Rispondi SOLO in questo formato:
 SINTESI: [testo]
 RILEVANZA: [testo]"""
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # PATH FILE
 # ═══════════════════════════════════════════════════════════════════════════════
-
 DIR_BASE      = os.path.dirname(os.path.abspath(__file__))
 LOG_FILE      = os.path.join(DIR_BASE, "newsletter.log")
 STATO_FILE    = os.path.join(DIR_BASE, "stato_corrente.json")  # bozza pendente
 ARCHIVIO_DIR  = os.path.join(DIR_BASE, "archivio")  # log invii precedenti
-
-
 def valida_config():
     mancanti = []
     if not ANTHROPIC_API_KEY: mancanti.append("ANTHROPIC_API_KEY")
