@@ -378,6 +378,11 @@ def build_html(articoli):
             </div>
           </td>
         </tr>"""
+    logo_html = (
+        f'<img src="{cfg.LOGO_URL}" alt="Pronto Soccorso Area Critica" '
+        f'style="display:block;height:56px;width:auto;margin-bottom:14px;'
+        f'background:#ffffff;padding:6px 10px;border-radius:6px;" />'
+    ) if getattr(cfg, "LOGO_URL", "") else ""
     riviste_str = " &middot; ".join(r["nlmta"] for r in cfg.RIVISTE[:6]) + " &middot; e altre 6"
     return f"""<!DOCTYPE html>
 <html lang="it">
@@ -393,6 +398,7 @@ def build_html(articoli):
             <tr><td style="background:{cfg.COLOR_ACCENT};height:4px;"></td></tr>
             <tr>
               <td style="padding:28px 32px 24px;">
+                {logo_html}
                 <div style="font-family:monospace;font-size:10px;color:#777;letter-spacing:3px;text-transform:uppercase;margin-bottom:8px;">
                   {cfg.NOME_SERVIZIO}
                 </div>
