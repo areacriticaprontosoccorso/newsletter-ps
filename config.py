@@ -75,8 +75,8 @@ GIORNO_INVIO      = "lunedì"
 ORARIO_INVIO      = "13:00"  # ora di Roma; impostare cosi' su cron-job.org
 
 # Branding
-NOME_NEWSLETTER   = "EM Weekly Digest"
-NOME_SERVIZIO     = "Pronto Soccorso · San Giovanni Bosco · Torino"
+NOME_NEWSLETTER   = "EM Weekly Digest a cura di Francesco Panero"
+NOME_SERVIZIO     = "Area Critica e Pronto Soccorso · San Giovanni Bosco · Torino"
 COLOR_ACCENT      = "#c41e3a"  # rosso
 COLOR_DARK        = "#1a1a1a"
 
