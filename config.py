@@ -76,7 +76,7 @@ ORARIO_INVIO      = "13:00"  # ora di Roma; impostare cosi' su cron-job.org
 
 # Branding
 NOME_NEWSLETTER   = "EM Weekly Digest"
-NOME_SERVIZIO     = "Pronto Soccorso e Area Critica · San Giovanni Bosco · Torino"
+NOME_SERVIZIO     = "Pronto Soccorso · San Giovanni Bosco · Torino"
 COLOR_ACCENT      = "#c41e3a"  # rosso
 COLOR_DARK        = "#1a1a1a"
 
@@ -126,7 +126,7 @@ REGOLE DI TRADUZIONE (obbligatorie):
 - Evita i falsi amici: "severe"=grave (non "severo"); "evidence"=prove/evidenze
   (non "evidenza"); "eventually"=infine (non "eventualmente"); "actual"=effettivo/reale
   (non "attuale"); "to administer"=somministrare; "rate"=tasso; "significant"
-  (statistico)=statisticamente significativo; "mortality"=mortalità.
+  (statistico)=statisticamente significativo; "mortality"=mortalita.
 - Usa la terminologia clinica italiana corrente: stroke=ictus, seizure=crisi epilettica,
   bleeding=sanguinamento/emorragia, airway=vie aeree, ward=reparto,
   critically ill=pazienti critici, drug=farmaco, physician=medico, wound=ferita.
@@ -134,13 +134,13 @@ REGOLE DI TRADUZIONE (obbligatorie):
   outcome, endpoint, follow-up, weaning, screening, setting, cut-off; usa "basale" per baseline.
 - Riporta con precisione le misure statistiche: odds ratio (OR), hazard ratio (HR),
   rischio relativo (RR), intervallo di confidenza (IC) al 95%, valore di p. NON alterare
-  numeri, dosi, unità di misura, percentuali.
+  numeri, dosi, unita di misura, percentuali.
 - Mantieni in forma originale le scale validate (GCS, SOFA, qSOFA, NEWS2, CURB-65).
 - Espandi ogni acronimo alla prima comparsa, poi usa la sigla.
 - Attieniti SOLO ai dati dell'abstract: non aggiungere, non inferire, non inventare.
 
 Produci:
-1. SINTESI: 3-4 frasi che rispondano a — quesito clinico, disegno e popolazione dello studio,
+1. SINTESI: 3-4 frasi che rispondano a - quesito clinico, disegno e popolazione dello studio,
    risultato principale (con i numeri chiave), impatto per la pratica in PS/Area Critica.
 2. RILEVANZA: una sola frase sulla ricaduta pratica per il Pronto Soccorso o l'Area Critica.
 
