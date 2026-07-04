@@ -22,7 +22,7 @@ import config as cfg
 
 DESTINATARI = [
     "francesco.panero@aslcittaditorino.it",
-   ]
+]
 
 logging.basicConfig(
     level=logging.INFO,
@@ -179,6 +179,9 @@ def chiama_opus(prompt, max_tokens=1500):
     payload = json.dumps({
         "model":      cfg.ANTHROPIC_MODEL,
         "max_tokens": max_tokens,
+        # Sonnet 5 ha l'adaptive thinking attivo di default: lo disattiviamo,
+        # cosi' la risposta e' solo testo e max_tokens non viene speso in thinking.
+        "thinking":   {"type": "disabled"},
         "messages":   [{"role": "user", "content": prompt}],
     }).encode("utf-8")
     req = urllib.request.Request(
@@ -197,7 +200,13 @@ def chiama_opus(prompt, max_tokens=1500):
         try:
             with urllib.request.urlopen(req, timeout=90) as r:
                 data = json.loads(r.read().decode("utf-8"))
-            return data["content"][0]["text"].strip()
+            # Estrai il primo blocco di tipo "text" (Sonnet 5 puo' anteporre
+            # blocchi "thinking": content[0] non e' garantito essere testo).
+            blocchi = data.get("content", [])
+            testo = next((b.get("text", "") for b in blocchi if b.get("type") == "text"), "")
+            if not testo:
+                raise RuntimeError(f"Nessun blocco di testo nella risposta API: {str(data)[:300]}")
+            return testo.strip()
         except urllib.error.HTTPError as e:
             body = e.read().decode("utf-8")
             ultimo_errore = f"Anthropic API errore {e.code}: {body[:400]}"
