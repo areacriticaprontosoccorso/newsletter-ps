@@ -13,7 +13,7 @@ import os
 # ═══════════════════════════════════════════════════════════════════════════════
 
 ANTHROPIC_API_KEY  = os.environ.get("ANTHROPIC_API_KEY", "")
-ANTHROPIC_MODEL    = "claude-sonnet-4-6"
+ANTHROPIC_MODEL    = "claude-sonnet-5"
 
 GMAIL_USER         = os.environ.get("GMAIL_USER", "")
 # Invio tramite OAuth2: il token completo (JSON) sta in GMAIL_TOKEN.
@@ -76,7 +76,7 @@ ORARIO_INVIO      = "13:00"  # ora di Roma; impostare cosi' su cron-job.org
 
 # Branding
 NOME_NEWSLETTER   = "EM Weekly Digest"
-NOME_SERVIZIO     = "Pronto Soccorso · San Giovanni Bosco · Torino"
+NOME_SERVIZIO     = "Pronto Soccorso e Area Critica · San Giovanni Bosco · Torino"
 COLOR_ACCENT      = "#c41e3a"  # rosso
 COLOR_DARK        = "#1a1a1a"
 
@@ -115,11 +115,34 @@ Esempio output:
 56789012"""
 
 
-PROMPT_SINTESI = """Sei un medico di Pronto Soccorso italiano esperto in letteratura scientifica.
+PROMPT_SINTESI = """Sei un medico di Pronto Soccorso italiano, esperto di letteratura scientifica
+e di traduzione medico-scientifica dall'inglese all'italiano.
 
-Analizza questo articolo e produci in italiano:
-1. SINTESI: 3-4 frasi che rispondano a — domanda clinica, risultato principale, impatto per la pratica in PS/ICU
-2. RILEVANZA: una sola frase sulla rilevanza pratica per il Pronto Soccorso o Area Critica
+Analizza l'articolo e produci un testo IN ITALIANO, con linguaggio medico-scientifico
+preciso, del registro usato nelle riviste italiane di area critica.
+
+REGOLE DI TRADUZIONE (obbligatorie):
+- Traduci il SIGNIFICATO clinico, mai parola per parola. Vietati i calchi dall'inglese.
+- Evita i falsi amici: "severe"=grave (non "severo"); "evidence"=prove/evidenze
+  (non "evidenza"); "eventually"=infine (non "eventualmente"); "actual"=effettivo/reale
+  (non "attuale"); "to administer"=somministrare; "rate"=tasso; "significant"
+  (statistico)=statisticamente significativo; "mortality"=mortalità.
+- Usa la terminologia clinica italiana corrente: stroke=ictus, seizure=crisi epilettica,
+  bleeding=sanguinamento/emorragia, airway=vie aeree, ward=reparto,
+  critically ill=pazienti critici, drug=farmaco, physician=medico, wound=ferita.
+- Lascia in inglese SOLO i termini realmente in uso in clinica italiana: ARDS, shock,
+  outcome, endpoint, follow-up, weaning, screening, setting, cut-off; usa "basale" per baseline.
+- Riporta con precisione le misure statistiche: odds ratio (OR), hazard ratio (HR),
+  rischio relativo (RR), intervallo di confidenza (IC) al 95%, valore di p. NON alterare
+  numeri, dosi, unità di misura, percentuali.
+- Mantieni in forma originale le scale validate (GCS, SOFA, qSOFA, NEWS2, CURB-65).
+- Espandi ogni acronimo alla prima comparsa, poi usa la sigla.
+- Attieniti SOLO ai dati dell'abstract: non aggiungere, non inferire, non inventare.
+
+Produci:
+1. SINTESI: 3-4 frasi che rispondano a — quesito clinico, disegno e popolazione dello studio,
+   risultato principale (con i numeri chiave), impatto per la pratica in PS/Area Critica.
+2. RILEVANZA: una sola frase sulla ricaduta pratica per il Pronto Soccorso o l'Area Critica.
 
 Articolo:
 Titolo: {titolo}
