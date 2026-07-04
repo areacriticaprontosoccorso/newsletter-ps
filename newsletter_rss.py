@@ -24,7 +24,6 @@ DESTINATARI = [
     "francesco.panero@aslcittaditorino.it",
     "S.C.Medicinad'EmergenzaeUrgenza@aslcittaditorino.it",
     "riccardo.raffaldi@aslcittaditorino.it",
-    "mperotto@aslcn2.it",
 ]
 
 logging.basicConfig(
@@ -383,7 +382,7 @@ def build_html(articoli):
         </tr>"""
     logo_html = (
         f'<img src="{cfg.LOGO_URL}" alt="Pronto Soccorso Area Critica" '
-        f'style="display:block;height:56px;width:auto;margin-bottom:14px;'
+        f'style="display:block;height:84px;width:auto;margin-bottom:14px;'
         f'background:#ffffff;padding:6px 10px;border-radius:6px;" />'
     ) if getattr(cfg, "LOGO_URL", "") else ""
     riviste_str = " &middot; ".join(r["nlmta"] for r in cfg.RIVISTE[:6]) + " &middot; e altre 6"
