@@ -22,7 +22,7 @@ DESTINATARI        = [
 NCBI_TOOL          = "em_weekly_digest_torino"  # User-Agent per i feed PubMed
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# RIVISTE TARGET (12 — ordinate per impact factor decrescente)
+# RIVISTE TARGET (15)
 # ═══════════════════════════════════════════════════════════════════════════════
 RIVISTE = [
     {"nome": "New England Journal of Medicine", "nlmta": "N Engl J Med",       "issn": "0028-4793"},
@@ -37,13 +37,69 @@ RIVISTE = [
     {"nome": "Resuscitation",                   "nlmta": "Resuscitation",      "issn": "0300-9572"},
     {"nome": "Academic Emergency Medicine",     "nlmta": "Acad Emerg Med",     "issn": "1069-6563"},
     {"nome": "Emergency Medicine Journal",      "nlmta": "Emerg Med J",        "issn": "1472-0205"},
+    # Aggiunte: colmano i buchi su neurologia vascolare e terapia intensiva open access.
+    {"nome": "Stroke",                          "nlmta": "Stroke",             "issn": "0039-2499"},
+    # Critical Care e' solo online: se il feed torna vuoto, usare l'eISSN 1466-609X.
+    {"nome": "Critical Care",                   "nlmta": "Crit Care",          "issn": "1364-8535"},
+    # Annals of Intensive Care e' solo online e ha un unico ISSN.
+    {"nome": "Annals of Intensive Care",        "nlmta": "Ann Intensive Care", "issn": "2110-5820"},
 ]
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # PARAMETRI PIPELINE
 # ═══════════════════════════════════════════════════════════════════════════════
 GIORNI_RICERCA  = 7   # finestra temporale: ultimi 7 giorni (settimana)
+GIORNI_RICERCA_ESTESO = 14  # fallback se la settimana e' troppo povera
 ARTICOLI_FINALI = 5   # numero articoli nel digest finale
+MINIMO_ARTICOLI = 3   # sotto questa soglia scatta il fallback di riempimento
+MAX_PER_TEMA    = 2   # max articoli sullo stesso tema clinico nello stesso digest
+MAX_CANDIDATI_PROMPT = 150  # tetto di candidati inviati al filtro (protegge i token)
+
+# Token e temperatura per tipo di chiamata. Temperature basse: sono compiti di
+# estrazione e formattazione, la varianza non aggiunge valore.
+MAX_TOKENS_FILTRO          = 800
+MAX_TOKENS_SINTESI_MULTI   = 4000
+MAX_TOKENS_SINTESI_SINGOLA = 800
+TEMPERATURE_FILTRO  = 0.2
+TEMPERATURE_SINTESI = 0.3
+
+# Finestra RSS per rivista: PubMed accetta 15/20/50/100. Le riviste ad alto volume
+# vanno alzate, altrimenti 20 item non coprono 7 giorni e si perdono articoli.
+RSS_LIMIT_DEFAULT = 20
+
+# Classificazione dell'articolo -> badge nell'email. Le chiavi sono i soli valori
+# accettati dal parser: qualunque altro valore viene scartato.
+TIPI_ARTICOLO = {
+    "cambia-pratica": {"label": "Cambia la pratica", "colore": "#c41e3a"},
+    "conferma":       {"label": "Conferma",          "colore": "#4a7c59"},
+    "controverso":    {"label": "Controverso",       "colore": "#b8860b"},
+    "esplorativo":    {"label": "Esplorativo",       "colore": "#6b7a8f"},
+}
+
+# Frase fissa richiesta al modello quando l'abstract non permette di giudicare:
+# essendo fissa, in build_html si puo' decidere di non stampare la riga.
+LIMITE_NON_DESUMIBILE = "Limiti non desumibili dall'abstract."
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PRE-FILTRO DETERMINISTICO
+# ═══════════════════════════════════════════════════════════════════════════════
+# Il feed RSS di PubMed non espone il campo PublicationType, ma questi tipi di
+# pubblicazione sono riconoscibili dal titolo. Filtrarli qui e' deterministico
+# e a costo zero, invece di delegarlo al prompt di filtro.
+ESCLUSIONI_TITOLO = [
+    r"^correction\b", r"^corrigendum\b", r"^erratum\b", r"^retraction\b",
+    r"^withdrawn\b", r"^expression of concern\b", r"^notice of\b",
+    r"^comments? on\b", r"^reply\b", r"^in reply\b", r"^response to\b",
+    r"^re:\s", r"^letter\b", r"^correspondence\b", r"^authors?'? repl",
+    r"^editorial\b", r"^this month in\b", r"^highlights\b", r"^in this issue\b",
+    r"^images? in\b", r"^image of\b", r"^clinical picture\b",
+    r"^visual diagnosis\b", r"^obituary\b", r"^in memoriam\b",
+    r"^podcast\b", r"^book review\b",
+]
+
+# Lunghezza minima dell'abstract. Sotto questa soglia si tratta quasi sempre di
+# lettere, commenti o abstract troncati dal feed.
+ABSTRACT_MIN_CHARS = 200
 
 # Schedulazione (trigger esterno via cron-job.org -> workflow_dispatch)
 # Lunedì 13:00 ora di Roma. Il fuso/DST è gestito da cron-job.org, non da GitHub.
@@ -62,108 +118,185 @@ LOGO_URL        = "https://raw.githubusercontent.com/areacriticaprontosoccorso/n
 # ═══════════════════════════════════════════════════════════════════════════════
 # PROMPT CLAUDE
 # ═══════════════════════════════════════════════════════════════════════════════
-PROMPT_FILTRO_RILEVANZA = """Sei un medico di Pronto Soccorso italiano.
+# Contesto operativo del PS. Serve al filtro per scartare articoli inapplicabili
+# (percorsi organizzativi esteri, farmaci non in commercio in Italia, risorse assenti).
+CONTESTO_PS = """CONTESTO DEL LETTORE:
+- Pronto Soccorso generale per adulti di ospedale urbano, Torino, Italia.
+- Annesse Osservazione Breve Intensiva e Area Critica/shock room.
+- Casistica: indifferenziata, prevalenza di patologia medica acuta,
+  quota rilevante di anziani fragili e pluripatologici.
+- Servizi disponibili sul posto: [DA COMPLETARE - es. TC h24, ecografia clinica
+  point-of-care, emodinamica, endoscopia d'urgenza, rianimazione]
+- Servizi NON presenti (paziente trasferito): [DA COMPLETARE - es. neurochirurgia,
+  cardiochirurgia, centro ustioni]
+- Sistema sanitario pubblico italiano: privilegia interventi con farmaci
+  in commercio in Italia e risorse realisticamente disponibili."""
 
-Dalla lista qui sotto, seleziona i {n} articoli piu rilevanti per la pratica clinica
-in Pronto Soccorso, Medicina d'Urgenza, Rianimazione e Terapia Intensiva.
+PROMPT_FILTRO_RILEVANZA = """COMPITO: dalla lista di articoli candidati, seleziona al massimo {n} articoli,
+quelli con il maggior impatto sulla pratica clinica quotidiana in Pronto Soccorso,
+Medicina d'Urgenza e Terapia Intensiva.
 
-ESCLUDI TASSATIVAMENTE questi tipi di pubblicazione:
-- Case reports e case series singoli
-- Letters to the editor, lettere, corrispondenza
-- Comments, editorial comments su altri studi
-- Errata, correzioni, retraction
-- News, biografie, narrative personali
+CRITERI DI SELEZIONE, in ordine di priorita' decrescente:
+1. IMPATTO DECISIONALE - l'articolo puo' modificare una decisione presa in PS nelle
+   prime ore: triage, scelta diagnostica, terapia, destinazione del paziente.
+2. APPLICABILITA' - l'intervento e' realizzabile nel contesto descritto sopra.
+   Scarta studi su farmaci non disponibili in Italia o su risorse assenti.
+3. QUALITA' METODOLOGICA - trial randomizzati, meta-analisi e revisioni sistematiche
+   prima di studi osservazionali; numerosita' adeguata; endpoint clinici anziche' surrogati.
+4. NOVITA' - a parita' di tutto il resto, preferisci cio' che cambia o ribalta una
+   pratica consolidata rispetto a cio' che conferma quanto gia' noto.
 
-PRIVILEGIA:
-- Trial clinici e studi originali su patologie d'urgenza
-- Meta-analisi e revisioni sistematiche
-- Linee guida e position paper su gestione acuta
-- Aggiornamenti su rianimazione cardiopolmonare e cure critiche
+VINCOLI DI COMPOSIZIONE:
+- Massimo 2 articoli sullo stesso tema clinico (es. non 3 studi sulla sepsi).
+- Massimo 2 articoli dalla stessa rivista.
+- Preferisci una selezione che copra aree cliniche diverse.
 
-ESCLUDI temi non pertinenti al PS:
-- Cardiologia interventistica pura (non d'urgenza)
-- Chirurgia elettiva, oncologia ambulatoriale
-- Ricerca di base senza implicazioni cliniche immediate
+ESCLUDI:
+- Case report e case series.
+- Studi puramente organizzativi su sistemi sanitari non europei.
+- Ricerca di base o preclinica senza ricaduta clinica immediata.
+- Cardiologia interventistica elettiva, chirurgia elettiva, oncologia ambulatoriale.
+
+IMPORTANTE: se meno di {n} articoli soddisfano davvero questi criteri, restituiscine
+di meno. Non completare la lista con articoli mediocri: una selezione di 3 articoli
+solidi e' preferibile a 5 di cui 2 irrilevanti.
 
 ARTICOLI CANDIDATI:
 {articoli}
 
-Restituisci SOLO una lista di {n} PMID, uno per riga, in ordine di rilevanza decrescente.
-Nessun commento, nessuna spiegazione, solo i {n} PMID.
+FORMATO DI RISPOSTA - restituisci SOLO un array JSON valido, senza testo prima o dopo,
+senza blocchi markdown. Scegli esclusivamente PMID presenti nella lista qui sopra:
+non inventare ne' modificare PMID.
 
-Esempio output:
-12345678
-23456789
-34567890
-45678901
-56789012"""
+[
+  {{"pmid": "12345678", "tema": "sepsi", "perche": "motivo in max 15 parole"}},
+  {{"pmid": "23456789", "tema": "trauma cranico", "perche": "..."}}
+]
 
-# Regole di traduzione condivise dai prompt di sintesi.
+Ordina dal piu' rilevante al meno rilevante."""
+
+# Regole di traduzione condivise. Vivono nel system prompt delle chiamate di sintesi.
 REGOLE_TRADUZIONE = """REGOLE DI TRADUZIONE (obbligatorie):
 - Traduci il SIGNIFICATO clinico, mai parola per parola. Vietati i calchi dall'inglese.
 - Evita i falsi amici: "severe"=grave (non "severo"); "evidence"=prove/evidenze
   (non "evidenza"); "eventually"=infine (non "eventualmente"); "actual"=effettivo/reale
-  (non "attuale"); "to administer"=somministrare; "rate"=tasso; "significant"
-  (statistico)=statisticamente significativo; "mortality"=mortalita.
+  (non "attuale"); "consistent"=coerente/costante (non "consistente"); "to require"=
+  necessitare; "to administer"=somministrare; "rate"=tasso; "significant"
+  (statistico)=statisticamente significativo; "mortality"=mortalita';
+  "morbidity"=morbilita'; "compliance"=aderenza; "management"=gestione;
+  "care"=assistenza/cure; "to realize"=rendersi conto.
 - Usa la terminologia clinica italiana corrente: stroke=ictus, seizure=crisi epilettica,
   bleeding=sanguinamento/emorragia, airway=vie aeree, ward=reparto,
   critically ill=pazienti critici, drug=farmaco, physician=medico, wound=ferita.
+- Lessico dei trial: "trial"=studio/sperimentazione clinica; "arm"=braccio;
+  "blinded"=in cieco; "double-blind"=in doppio cieco; "open-label"=in aperto;
+  "primary/secondary endpoint"=endpoint primario/secondario; "number needed to
+  treat"=NNT; "confounding"=confondimento; "adherence"=aderenza.
 - Lascia in inglese SOLO i termini realmente in uso in clinica italiana: ARDS, shock,
-  outcome, endpoint, follow-up, weaning, screening, setting, cut-off; usa "basale" per baseline.
+  outcome, endpoint, follow-up, weaning, screening, setting, cut-off, bias,
+  propensity score, hazard, washout; usa "basale" per baseline.
 - Riporta con precisione le misure statistiche: odds ratio (OR), hazard ratio (HR),
-  rischio relativo (RR), intervallo di confidenza (IC) al 95%, valore di p. NON alterare
-  numeri, dosi, unita di misura, percentuali.
+  rischio relativo (RR), intervallo di confidenza (IC) al 95%, valore di p.
+- NUMERI: riporta cifre e separatore decimale ESATTAMENTE come nell'originale
+  (punto decimale: 0.85; p<0.001). Non convertire il punto in virgola: ogni
+  riscrittura di un numero e' un'occasione di errore. Non alterare dosi,
+  unita' di misura, percentuali.
 - Mantieni in forma originale le scale validate (GCS, SOFA, qSOFA, NEWS2, CURB-65).
 - Espandi ogni acronimo alla prima comparsa, poi usa la sigla.
+- Non usare mai "significativo" da solo: specifica "statisticamente significativo"
+  oppure "clinicamente rilevante".
 - Attieniti SOLO ai dati dell'abstract: non aggiungere, non inferire, non inventare."""
 
-# Sintesi di TUTTI gli articoli in una sola chiamata API.
-PROMPT_SINTESI_MULTI = """Sei un medico di Pronto Soccorso italiano, esperto di letteratura scientifica
-e di traduzione medico-scientifica dall'inglese all'italiano.
+# ── SYSTEM PROMPT ─────────────────────────────────────────────────────────────
+# Persona, contesto e regole stabili vivono qui: sono identici a ogni esecuzione,
+# mentre il messaggio utente contiene solo il compito e i dati della settimana.
+SYSTEM_FILTRO = """Sei un medico strutturato di Pronto Soccorso italiano con esperienza
+in medicina d'urgenza e cure critiche. Selezioni la letteratura settimanale per i
+colleghi del tuo reparto.
 
-Analizza OGNI articolo della lista e produci per ciascuno un testo IN ITALIANO,
-con linguaggio medico-scientifico preciso, del registro usato nelle riviste
+""" + CONTESTO_PS
+
+SYSTEM_SINTESI = """Sei un medico di Pronto Soccorso italiano, esperto di letteratura
+scientifica e di traduzione medico-scientifica dall'inglese all'italiano. Scrivi in
+italiano, con linguaggio medico-scientifico preciso, del registro usato nelle riviste
 italiane di area critica.
 
-""" + REGOLE_TRADUZIONE + """
+""" + REGOLE_TRADUZIONE
 
-Per OGNI articolo produci:
-1. SINTESI: 3-4 frasi che rispondano a - quesito clinico, disegno e popolazione dello studio,
-   risultato principale (con i numeri chiave), impatto per la pratica in PS/Area Critica.
-2. RILEVANZA: una sola frase sulla ricaduta pratica per il Pronto Soccorso o l'Area Critica.
+# ── PROMPT DI SINTESI ─────────────────────────────────────────────────────────
+# Sintesi di TUTTI gli articoli in una sola chiamata API.
+PROMPT_SINTESI_MULTI = """Analizza OGNI articolo della lista e produci per ciascuno
+quattro campi:
+
+1. "sintesi" - da 90 a 120 parole, che rispondano nell'ordine a: quesito clinico;
+   disegno dello studio e popolazione, con numerosita'; risultato principale con i
+   numeri chiave e la misura di effetto; ricaduta sulla pratica in PS/Area Critica.
+2. "rilevanza" - UNA sola frase, massimo 30 parole, sulla ricaduta pratica concreta.
+3. "limite" - UNA sola frase, massimo 25 parole, sul principale limite metodologico:
+   monocentrico, non in cieco, endpoint surrogato, campione ridotto, popolazione
+   selezionata, interruzione precoce, follow-up breve, conflitti di interesse.
+   Se l'abstract non consente di identificare un limite, scrivi esattamente:
+   "Limiti non desumibili dall'abstract."
+4. "tipo" - UNO SOLO fra questi quattro valori, riportato esattamente cosi':
+   "cambia-pratica" = lo studio modifica una condotta oggi diffusa
+   "conferma"       = rafforza una pratica gia' consolidata
+   "controverso"    = risultati discordanti con evidenze o linee guida attuali
+   "esplorativo"    = ipotesi generatrice, dati preliminari, campione insufficiente
+
+SE L'ABSTRACT E' ASSENTE O PRIVO DI RISULTATI NUMERICI: scrivi nella "sintesi" una
+sola frase che lo dichiari esplicitamente, non inferire nulla dal titolo, usa
+"esplorativo" come tipo.
 
 ARTICOLI:
 {articoli}
 
-Rispondi SOLO in questo formato, ripetuto per ogni articolo, nello stesso ordine
-della lista, senza alcun altro testo prima o dopo:
+FORMATO DI RISPOSTA - restituisci SOLO un array JSON valido, senza testo prima o dopo,
+senza blocchi markdown, con un oggetto per articolo, nello stesso ordine della lista.
+Riporta il "pmid" esattamente come ti e' stato fornito.
 
-### PMID: [pmid]
-SINTESI: [testo]
-RILEVANZA: [testo]"""
+[
+  {{
+    "pmid": "12345678",
+    "sintesi": "...",
+    "rilevanza": "...",
+    "limite": "...",
+    "tipo": "cambia-pratica"
+  }}
+]"""
 
-# Sintesi di un singolo articolo (usata come fallback se dal multi manca qualcosa).
-PROMPT_SINTESI = """Sei un medico di Pronto Soccorso italiano, esperto di letteratura scientifica
-e di traduzione medico-scientifica dall'inglese all'italiano.
-Analizza l'articolo e produci un testo IN ITALIANO, con linguaggio medico-scientifico
-preciso, del registro usato nelle riviste italiane di area critica.
+# Sintesi di un singolo articolo (fallback se dal multi manca qualcosa).
+# Restituisce un array di UN elemento, cosi' da riusare lo stesso parser del multi.
+PROMPT_SINTESI = """Analizza l'articolo e produci quattro campi:
 
-""" + REGOLE_TRADUZIONE + """
+1. "sintesi" - 90-120 parole: quesito clinico; disegno e popolazione con numerosita';
+   risultato principale con i numeri chiave; ricaduta per PS/Area Critica.
+2. "rilevanza" - una sola frase, massimo 30 parole.
+3. "limite" - una sola frase, massimo 25 parole, sul principale limite metodologico.
+   Se non desumibile, scrivi esattamente: "Limiti non desumibili dall'abstract."
+4. "tipo" - uno fra: "cambia-pratica", "conferma", "controverso", "esplorativo".
 
-Produci:
-1. SINTESI: 3-4 frasi che rispondano a - quesito clinico, disegno e popolazione dello studio,
-   risultato principale (con i numeri chiave), impatto per la pratica in PS/Area Critica.
-2. RILEVANZA: una sola frase sulla ricaduta pratica per il Pronto Soccorso o l'Area Critica.
+Se l'abstract e' assente o privo di risultati numerici, dichiaralo nella "sintesi"
+in una sola frase, non inferire dal titolo, e usa tipo "esplorativo".
 
 Articolo:
+PMID: {pmid}
 Titolo: {titolo}
 Autori: {autori}
 Rivista: {rivista} ({data})
 Abstract: {abstract}
 
-Rispondi SOLO in questo formato:
-SINTESI: [testo]
-RILEVANZA: [testo]"""
+FORMATO DI RISPOSTA - restituisci SOLO un array JSON valido con UN solo oggetto,
+senza testo prima o dopo, senza blocchi markdown:
+
+[
+  {{
+    "pmid": "{pmid}",
+    "sintesi": "...",
+    "rilevanza": "...",
+    "limite": "...",
+    "tipo": "conferma"
+  }}
+]"""
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # PATH FILE

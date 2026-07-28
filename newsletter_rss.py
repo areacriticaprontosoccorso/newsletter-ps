@@ -36,6 +36,26 @@ def esc(s):
     return html.escape(str(s or ""), quote=True)
 
 
+_RE_ESCLUSI = [re.compile(p, re.IGNORECASE) for p in cfg.ESCLUSIONI_TITOLO]
+
+
+def escluso_per_titolo(titolo):
+    """True se il titolo indica un tipo di pubblicazione da escludere."""
+    # PubMed racchiude tra parentesi quadre i titoli tradotti da altre lingue.
+    t = (titolo or "").strip().lstrip("[").strip()
+    return any(r.search(t) for r in _RE_ESCLUSI)
+
+
+def _estrai_json_array(testo):
+    """Estrae il primo array JSON dalla risposta, tollerando i fence markdown."""
+    t = re.sub(r"^```(?:json)?\s*", "", testo.strip())
+    t = re.sub(r"\s*```$", "", t)
+    inizio, fine = t.find("["), t.rfind("]")
+    if inizio == -1 or fine == -1 or fine < inizio:
+        raise ValueError(f"Nessun array JSON nella risposta: {t[:200]}")
+    return json.loads(t[inizio:fine + 1])
+
+
 def numero_settimana():
     now = datetime.now()
     mesi = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno",
@@ -63,8 +83,9 @@ def fetch_url(url, timeout=20):
 NS = {"dc": "http://purl.org/dc/elements/1.1/"}
 
 
-def url_rss_pubmed(issn):
-    return f"https://pubmed.ncbi.nlm.nih.gov/rss/journals/{issn}/?limit=20&utm_campaign=journals"
+def url_rss_pubmed(issn, limit=None):
+    n = limit or cfg.RSS_LIMIT_DEFAULT
+    return f"https://pubmed.ncbi.nlm.nih.gov/rss/journals/{issn}/?limit={n}&utm_campaign=journals"
 
 
 def parse_pubdate(s):
@@ -118,7 +139,7 @@ def estrai_autori(item):
 
 
 def fetch_feed(rivista):
-    url = url_rss_pubmed(rivista["issn"])
+    url = url_rss_pubmed(rivista["issn"], rivista.get("limit"))
     try:
         raw = fetch_url(url)
         root = ET.fromstring(raw)
@@ -148,11 +169,20 @@ def fetch_feed(rivista):
             "abstract":   abstract,
             "url":        link or f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
         })
-    log.info(f"  {rivista['nlmta']}: {len(articoli)} articoli dal feed")
+    if not articoli:
+        # Causa quasi sempre un ISSN errato: PubMed risponde 200 con un feed vuoto,
+        # quindi senza questo controllo la rivista sparirebbe in silenzio.
+        log.error(
+            f"  {rivista['nlmta']}: FEED VUOTO - verificare l'ISSN {rivista['issn']} "
+            "(per le riviste solo online provare l'eISSN)"
+        )
+    else:
+        log.info(f"  {rivista['nlmta']}: {len(articoli)} articoli dal feed")
     return articoli
 
 
-def raccogli_candidati(giorni=7):
+def raccogli_candidati(giorni=None):
+    giorni = giorni or cfg.GIORNI_RICERCA
     log.info(f"Lettura RSS PubMed: ultimi {giorni} giorni su {len(cfg.RIVISTE)} riviste")
     cutoff = datetime.now(timezone.utc) - timedelta(days=giorni)
     tutti = []
@@ -171,20 +201,46 @@ def raccogli_candidati(giorni=7):
         if a["pmid"] not in seen:
             seen.add(a["pmid"])
             unici.append(a)
-    con_abstract = [a for a in unici if a["abstract"] and len(a["abstract"]) > 100]
-    log.info(f"Totale unici: {len(unici)}, con abstract: {len(con_abstract)}")
-    return con_abstract
+    candidati = []
+    scartati_titolo = scartati_abstract = 0
+    for a in unici:
+        if escluso_per_titolo(a["titolo"]):
+            scartati_titolo += 1
+            log.info(f"    [scarto/tipo] {a['titolo'][:90]}")
+            continue
+        if not a["abstract"] or len(a["abstract"]) < cfg.ABSTRACT_MIN_CHARS:
+            scartati_abstract += 1
+            log.info(f"    [scarto/abstract] {a['titolo'][:90]}")
+            continue
+        candidati.append(a)
+
+    log.info(
+        f"Unici {len(unici)} -> scartati {scartati_titolo} per tipo, "
+        f"{scartati_abstract} per abstract -> {len(candidati)} candidati"
+    )
+    return candidati
 
 
-def chiama_claude(prompt, max_tokens=1500):
-    payload = json.dumps({
+def chiama_claude(prompt, max_tokens=1500, system=None, temperature=None, prefill=None):
+    """prefill: testo con cui far iniziare la risposta (es. "[" per forzare il JSON).
+    Viene riconcatenato in testa al risultato, perche' l'API restituisce solo la
+    continuazione."""
+    messaggi = [{"role": "user", "content": prompt}]
+    if prefill:
+        messaggi.append({"role": "assistant", "content": prefill})
+    corpo = {
         "model":      cfg.ANTHROPIC_MODEL,
         "max_tokens": max_tokens,
         # Sonnet 5 ha l'adaptive thinking attivo di default: lo disattiviamo,
         # cosi' la risposta e' solo testo e max_tokens non viene speso in thinking.
         "thinking":   {"type": "disabled"},
-        "messages":   [{"role": "user", "content": prompt}],
-    }).encode("utf-8")
+        "messages":   messaggi,
+    }
+    if system:
+        corpo["system"] = system
+    if temperature is not None:
+        corpo["temperature"] = temperature
+    payload = json.dumps(corpo).encode("utf-8")
     # Retry con backoff su rate-limit (429) e errori server transitori (5xx).
     ultimo_errore = None
     for attempt in range(4):
@@ -207,7 +263,7 @@ def chiama_claude(prompt, max_tokens=1500):
             testo = next((b.get("text", "") for b in blocchi if b.get("type") == "text"), "")
             if not testo:
                 raise RuntimeError(f"Nessun blocco di testo nella risposta API: {str(data)[:300]}")
-            return testo.strip()
+            return (prefill or "") + testo.strip()
         except urllib.error.HTTPError as e:
             body = e.read().decode("utf-8")
             ultimo_errore = f"Anthropic API errore {e.code}: {body[:400]}"
@@ -228,6 +284,20 @@ def chiama_claude(prompt, max_tokens=1500):
 def filtra_top_articoli(candidati):
     if len(candidati) <= cfg.ARTICOLI_FINALI:
         return candidati
+
+    # Tetto ai candidati inviati al modello: con molte riviste il prompt cresce in
+    # fretta e una lista troppo lunga peggiora la selezione oltre che i costi.
+    if len(candidati) > cfg.MAX_CANDIDATI_PROMPT:
+        log.warning(
+            f"{len(candidati)} candidati: ne invio al filtro i "
+            f"{cfg.MAX_CANDIDATI_PROMPT} piu' recenti"
+        )
+        candidati = sorted(
+            candidati,
+            key=lambda a: a["pubdate_dt"] or datetime.min.replace(tzinfo=timezone.utc),
+            reverse=True,
+        )[:cfg.MAX_CANDIDATI_PROMPT]
+
     blocchi = []
     for a in candidati:
         blocchi.append(
@@ -240,52 +310,110 @@ def filtra_top_articoli(candidati):
         n=cfg.ARTICOLI_FINALI,
         articoli="\n\n---\n\n".join(blocchi),
     )
-    log.info(f"Claude filtra {len(candidati)} -> {cfg.ARTICOLI_FINALI}")
-    try:
-        risposta = chiama_claude(prompt, max_tokens=200)
-        pmids_sel = re.findall(r"\b\d{7,9}\b", risposta)[:cfg.ARTICOLI_FINALI]
-    except Exception as e:
-        log.error(f"Filtro Claude fallito ({e}); uso fallback per data")
-        pmids_sel = []
-    log.info(f"Claude selezionati: {pmids_sel}")
-    map_pmid = {a["pmid"]: a for a in candidati}
-    selezionati = [map_pmid[p] for p in pmids_sel if p in map_pmid]
+    log.info(f"Claude filtra {len(candidati)} candidati -> max {cfg.ARTICOLI_FINALI}")
 
-    # Fallback: se il filtro restituisce meno di ARTICOLI_FINALI articoli validi
-    # (PMID allucinati, risposta vuota o errore), completa con i candidati
-    # piu recenti non ancora selezionati, così il digest parte comunque.
-    if len(selezionati) < cfg.ARTICOLI_FINALI:
-        log.warning(
-            f"Filtro ha prodotto solo {len(selezionati)}/{cfg.ARTICOLI_FINALI} "
-            "articoli validi — completo con i piu recenti"
+    map_pmid = {a["pmid"]: a for a in candidati}
+    selezionati = []
+    scartati_diversita = []
+    conteggio_temi = {}
+    try:
+        risposta = chiama_claude(
+            prompt,
+            max_tokens=cfg.MAX_TOKENS_FILTRO,
+            system=cfg.SYSTEM_FILTRO,
+            temperature=cfg.TEMPERATURE_FILTRO,
+            prefill="[",
         )
-        gia_scelti = {a["pmid"] for a in selezionati}
-        restanti = [a for a in candidati if a["pmid"] not in gia_scelti]
-        restanti.sort(
+        for voce in _estrai_json_array(risposta):
+            if len(selezionati) >= cfg.ARTICOLI_FINALI:
+                break
+            if not isinstance(voce, dict):
+                continue
+            pmid   = str(voce.get("pmid", "")).strip()
+            tema   = (str(voce.get("tema", "")).strip().lower() or "n/d")
+            perche = str(voce.get("perche", "")).strip()
+
+            # Il PMID deve esistere tra i candidati: blocca le allucinazioni.
+            if pmid not in map_pmid:
+                log.warning(f"    PMID non tra i candidati, ignorato: {pmid!r}")
+                continue
+            if any(a["pmid"] == pmid for a in selezionati):
+                continue
+            # Vincolo di diversita' applicato in codice, non solo nel prompt.
+            if conteggio_temi.get(tema, 0) >= cfg.MAX_PER_TEMA:
+                log.info(f"    [{pmid}] rinviato in riserva: tema '{tema}' gia' saturo")
+                scartati_diversita.append(map_pmid[pmid])
+                continue
+
+            conteggio_temi[tema] = conteggio_temi.get(tema, 0) + 1
+            selezionati.append(map_pmid[pmid])
+            log.info(f"    [{pmid}] {tema} -- {perche}")
+    except Exception as e:
+        log.error(f"Filtro Claude fallito ({e}); si procede con il fallback per data")
+
+    # Il prompt autorizza a restituire meno di ARTICOLI_FINALI se la settimana e'
+    # povera: si riempie solo sotto MINIMO_ARTICOLI, e prima con gli articoli messi
+    # in riserva dal vincolo di diversita', poi con i piu' recenti.
+    if len(selezionati) < cfg.MINIMO_ARTICOLI:
+        log.warning(
+            f"Solo {len(selezionati)} articoli selezionati (minimo {cfg.MINIMO_ARTICOLI}): "
+            "completo con riserva e poi per data"
+        )
+        gia = {a["pmid"] for a in selezionati}
+        riserva = [a for a in scartati_diversita if a["pmid"] not in gia]
+        pmid_riserva = {a["pmid"] for a in riserva}
+        altri = [
+            a for a in candidati
+            if a["pmid"] not in gia and a["pmid"] not in pmid_riserva
+        ]
+        altri.sort(
             key=lambda a: a["pubdate_dt"] or datetime.min.replace(tzinfo=timezone.utc),
             reverse=True,
         )
-        for a in restanti:
-            if len(selezionati) >= cfg.ARTICOLI_FINALI:
+        for a in riserva + altri:
+            if len(selezionati) >= cfg.MINIMO_ARTICOLI:
                 break
             selezionati.append(a)
+            gia.add(a["pmid"])
 
+    log.info(f"Selezione finale: {len(selezionati)} articoli")
     return selezionati
 
 
-def _parse_sintesi_blocco(testo):
-    """Estrae SINTESI e RILEVANZA da un blocco di risposta."""
-    sintesi_m   = re.search(r"SINTESI:\s*([\s\S]+?)(?=\nRILEVANZA:|\Z)", testo)
-    rilevanza_m = re.search(r"RILEVANZA:\s*(.+)", testo)
-    return (
-        sintesi_m.group(1).strip() if sintesi_m else "",
-        rilevanza_m.group(1).strip() if rilevanza_m else "",
-    )
+def _voce_sintesi(voce):
+    """Normalizza e valida un oggetto della risposta di sintesi.
+    Restituisce (pmid, dati) oppure None se la voce e' inutilizzabile."""
+    if not isinstance(voce, dict):
+        return None
+    pmid = str(voce.get("pmid", "")).strip()
+    if not pmid:
+        return None
+    # Il tipo alimenta un badge HTML: se il modello inventa un valore fuori
+    # whitelist lo si azzera, cosi' il badge semplicemente non compare.
+    tipo = str(voce.get("tipo", "")).strip().lower()
+    if tipo and tipo not in cfg.TIPI_ARTICOLO:
+        log.warning(f"    PMID {pmid}: tipo '{tipo}' fuori whitelist, ignorato")
+        tipo = ""
+    return pmid, {
+        "sintesi_it": str(voce.get("sintesi", "")).strip(),
+        "rilevanza":  str(voce.get("rilevanza", "")).strip(),
+        "limite":     str(voce.get("limite", "")).strip(),
+        "tipo":       tipo,
+    }
+
+
+def _sintesi_vuota(art):
+    art["sintesi_it"] = art.get("sintesi_it") or ""
+    art["rilevanza"]  = art.get("rilevanza")  or ""
+    art["limite"]     = art.get("limite")     or ""
+    art["tipo"]       = art.get("tipo")       or ""
+    return art
 
 
 def sintetizza_articolo(art):
     """Sintesi di un singolo articolo (fallback)."""
     prompt = cfg.PROMPT_SINTESI.format(
+        pmid=art["pmid"],
         titolo=art["titolo"],
         autori=art["autori"],
         rivista=art["rivista"],
@@ -293,14 +421,22 @@ def sintetizza_articolo(art):
         abstract=art["abstract"][:2000] if art["abstract"] else "(non disponibile)",
     )
     try:
-        risposta = chiama_claude(prompt, max_tokens=600)
-        sintesi, rilevanza = _parse_sintesi_blocco(risposta)
-        art["sintesi_it"] = sintesi or risposta[:400]
-        art["rilevanza"]  = rilevanza
+        risposta = chiama_claude(
+            prompt,
+            max_tokens=cfg.MAX_TOKENS_SINTESI_SINGOLA,
+            system=cfg.SYSTEM_SINTESI,
+            temperature=cfg.TEMPERATURE_SINTESI,
+            prefill="[",
+        )
+        voci = _estrai_json_array(risposta)
+        esito = _voce_sintesi(voci[0]) if voci else None
+        if not esito or not esito[1]["sintesi_it"]:
+            raise ValueError("risposta priva di sintesi utilizzabile")
+        # Si usa sempre il PMID dell'articolo, non quello riportato dal modello.
+        art.update(esito[1])
     except Exception as e:
         log.error(f"Sintesi fallita PMID {art['pmid']}: {e}")
-        art["sintesi_it"] = ""
-        art["rilevanza"]  = ""
+        _sintesi_vuota(art)
     return art
 
 
@@ -318,27 +454,31 @@ def sintetizza_articoli(articoli):
             f"Abstract: {a['abstract'][:2000] if a['abstract'] else '(non disponibile)'}"
         )
     prompt = cfg.PROMPT_SINTESI_MULTI.format(articoli="\n\n---\n\n".join(blocchi))
-    log.info(f"Sintesi unica di {len(articoli)} articoli con Claude…")
+    log.info(f"Sintesi unica di {len(articoli)} articoli con Claude...")
 
     per_pmid = {}
     try:
-        risposta = chiama_claude(prompt, max_tokens=4000)
-        # Split sui delimitatori "### PMID: xxxx"
-        pezzi = re.split(r"###\s*PMID:\s*(\d{7,9})", risposta)
-        # pezzi = [preambolo, pmid1, testo1, pmid2, testo2, ...]
-        for i in range(1, len(pezzi) - 1, 2):
-            pmid, blocco = pezzi[i], pezzi[i + 1]
-            sintesi, rilevanza = _parse_sintesi_blocco(blocco)
-            if sintesi:
-                per_pmid[pmid] = (sintesi, rilevanza)
+        risposta = chiama_claude(
+            prompt,
+            max_tokens=cfg.MAX_TOKENS_SINTESI_MULTI,
+            system=cfg.SYSTEM_SINTESI,
+            temperature=cfg.TEMPERATURE_SINTESI,
+            prefill="[",
+        )
+        for voce in _estrai_json_array(risposta):
+            esito = _voce_sintesi(voce)
+            if esito and esito[1]["sintesi_it"]:
+                per_pmid[esito[0]] = esito[1]
+        log.info(f"Sintesi ricevute per {len(per_pmid)}/{len(articoli)} articoli")
     except Exception as e:
         log.error(f"Sintesi multipla fallita: {e}")
 
     for art in articoli:
-        if art["pmid"] in per_pmid:
-            art["sintesi_it"], art["rilevanza"] = per_pmid[art["pmid"]]
+        dati = per_pmid.get(art["pmid"])
+        if dati:
+            art.update(dati)
         else:
-            log.warning(f"PMID {art['pmid']} assente dalla sintesi multipla — fallback singolo")
+            log.warning(f"PMID {art['pmid']} assente dalla sintesi multipla - fallback singolo")
             sintetizza_articolo(art)
             time.sleep(1)
     return articoli
@@ -352,6 +492,22 @@ def build_html(articoli):
             f'&nbsp;|&nbsp;<a href="https://doi.org/{esc(a["doi"])}" '
             f'style="font-family:monospace;font-size:11px;color:#0a4d68;text-decoration:none;">&#x2197; DOI</a>'
         ) if a.get("doi") else ""
+        meta_tipo = cfg.TIPI_ARTICOLO.get(a.get("tipo") or "")
+        badge_html = (
+            f'<span style="font-family:monospace;font-size:9px;font-weight:700;'
+            f'letter-spacing:1px;text-transform:uppercase;color:#ffffff;'
+            f'background:{meta_tipo["colore"]};padding:3px 7px;border-radius:3px;'
+            f'margin-left:10px;">{esc(meta_tipo["label"])}</span>'
+        ) if meta_tipo else ""
+        limite_txt = (a.get("limite") or "").strip()
+        limite_html = "" if (not limite_txt or limite_txt == cfg.LIMITE_NON_DESUMIBILE) else f"""
+            <div style="font-family:Georgia,serif;font-size:12.5px;color:#6f6152;
+                        line-height:1.55;margin:0 0 12px;padding:9px 14px;
+                        background:#fbf9f4;border-left:3px solid #c9bda6;">
+              <span style="font-family:monospace;font-size:9px;letter-spacing:1.5px;
+                           text-transform:uppercase;color:#a08c6b;">Limite</span><br/>
+              {esc(limite_txt)}
+            </div>"""
         sintesi_html = ""
         if a.get("sintesi_it"):
             rilevanza_html = (
@@ -380,13 +536,14 @@ def build_html(articoli):
           <td style="padding:28px 32px 24px;border-bottom:1px solid #e8e3db;">
             <div style="margin-bottom:10px;">
               <span style="font-family:monospace;font-size:12px;color:{cfg.COLOR_ACCENT};font-weight:700;">{str(i+1).zfill(2)}</span>
-              <span style="font-family:monospace;font-size:11px;color:#aaa;margin-left:8px;">{esc(a['rivista'])} &middot; {esc(a['data'])}</span>
+              <span style="font-family:monospace;font-size:11px;color:#aaa;margin-left:8px;">{esc(a['rivista'])} &middot; {esc(a['data'])}</span>{badge_html}
             </div>
             <a href="{esc(a['url'])}" style="font-family:Georgia,serif;font-size:19px;font-weight:700;
                                         color:#1a1a1a;text-decoration:none;line-height:1.35;
                                         display:block;margin-bottom:6px;">{esc(a['titolo'])}</a>
             <div style="font-family:monospace;font-size:12px;color:#999;font-style:italic;margin-bottom:14px;">{esc(a['autori'])}</div>
             {sintesi_html}
+            {limite_html}
             {abstract_html}
             <div>
               <a href="{esc(a['url'])}" style="font-family:monospace;font-size:11px;color:#0a4d68;text-decoration:none;">&#x2197; PubMed {esc(a['pmid'])}</a>
@@ -399,7 +556,10 @@ def build_html(articoli):
         f'style="display:block;height:84px;width:auto;margin-bottom:14px;'
         f'background:#ffffff;padding:6px 10px;border-radius:6px;" />'
     ) if getattr(cfg, "LOGO_URL", "") else ""
-    riviste_str = " &middot; ".join(r["nlmta"] for r in cfg.RIVISTE[:6]) + " &middot; e altre 6"
+    _nomi = [r["nlmta"] for r in cfg.RIVISTE]
+    riviste_str = " &middot; ".join(_nomi[:6])
+    if len(_nomi) > 6:
+        riviste_str += f" &middot; e altre {len(_nomi) - 6}"
     return f"""<!DOCTYPE html>
 <html lang="it">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
@@ -504,11 +664,14 @@ def main():
     log.info(f"=== EM Weekly Digest — settimana {wl['settimana']}/{wl['anno']} ===")
     log.info(f"=== Destinatari: {len(cfg.DESTINATARI)} (da secret) ===")
 
-    candidati = raccogli_candidati(giorni=7)
+    candidati = raccogli_candidati(giorni=cfg.GIORNI_RICERCA)
 
     if len(candidati) < cfg.ARTICOLI_FINALI + 3:
-        log.warning(f"Solo {len(candidati)} candidati a 7 giorni — estendo a 14 giorni")
-        candidati = raccogli_candidati(giorni=14)
+        log.warning(
+            f"Solo {len(candidati)} candidati a {cfg.GIORNI_RICERCA} giorni - "
+            f"estendo a {cfg.GIORNI_RICERCA_ESTESO}"
+        )
+        candidati = raccogli_candidati(giorni=cfg.GIORNI_RICERCA_ESTESO)
 
     if not candidati:
         log.error("Nessun articolo trovato nemmeno a 14 giorni")
