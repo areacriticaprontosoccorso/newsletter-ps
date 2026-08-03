@@ -20,7 +20,7 @@ DESTINATARI        = [
     e.strip() for e in os.environ.get("DESTINATARI", "").split(",") if e.strip()
 ]
 
-# Modalita' prova a vuoto: esegue tutta la pipeline (feed, efetch, filtro, sintesi)
+# Modalità prova a vuoto: esegue tutta la pipeline (feed, efetch, filtro, sintesi)
 # ma NON invia l'email; scrive l'HTML su file e logga la selezione per esteso.
 # Attivazione: DRY_RUN=1 (accettati anche true/yes/si).
 DRY_RUN      = os.environ.get("DRY_RUN", "").strip().lower() in ("1", "true", "yes", "si")
@@ -32,7 +32,7 @@ NCBI_TOOL          = "em_weekly_digest_torino"  # User-Agent per i feed PubMed
 # "gruppo": em = medicina d'urgenza | gen = medicina generale | spec = specialistica.
 # Serve al vincolo di composizione: il digest deve contenere almeno
 # MIN_EM_GEN articoli da riviste em o gen, per non scivolare tutto sulle
-# specialistiche, che pubblicano molto di piu'.
+# specialistiche, che pubblicano molto di più.
 # ═══════════════════════════════════════════════════════════════════════════════
 RIVISTE = [
     {"nome": "New England Journal of Medicine", "nlmta": "N Engl J Med",       "issn": "0028-4793", "gruppo": "gen"},
@@ -49,9 +49,9 @@ RIVISTE = [
     {"nome": "Emergency Medicine Journal",      "nlmta": "Emerg Med J",        "issn": "1472-0205", "gruppo": "em"},
     # Aggiunte: colmano i buchi su neurologia vascolare e terapia intensiva open access.
     {"nome": "Stroke",                          "nlmta": "Stroke",             "issn": "0039-2499", "gruppo": "spec"},
-    # Critical Care e' solo online: se il feed torna vuoto, usare l'eISSN 1466-609X.
+    # Critical Care è solo online: se il feed torna vuoto, usare l'eISSN 1466-609X.
     {"nome": "Critical Care",                   "nlmta": "Crit Care",          "issn": "1364-8535", "gruppo": "spec"},
-    # Annals of Intensive Care e' solo online e ha un unico ISSN.
+    # Annals of Intensive Care è solo online e ha un unico ISSN.
     {"nome": "Annals of Intensive Care",        "nlmta": "Ann Intensive Care", "issn": "2110-5820", "gruppo": "spec"},
 ]
 
@@ -59,9 +59,9 @@ RIVISTE = [
 # PARAMETRI PIPELINE
 # ═══════════════════════════════════════════════════════════════════════════════
 GIORNI_RICERCA  = 7   # finestra temporale: ultimi 7 giorni (settimana)
-GIORNI_RICERCA_ESTESO = 14  # fallback se la settimana e' troppo povera
+GIORNI_RICERCA_ESTESO = 14  # fallback se la settimana è troppo povera
 ARTICOLI_FINALI = 5   # numero articoli nel digest finale
-ARTICOLI_RICHIESTI = 8  # quanti chiederne al modello: i 3 in piu' sono la riserva
+ARTICOLI_RICHIESTI = 8  # quanti chiederne al modello: i 3 in più sono la riserva
                         # da cui il codice attinge per rispettare i vincoli
 MIN_EM_GEN = 2        # minimo di articoli da riviste "em" o "gen" nel digest
 GRUPPI_PRIORITARI = {"em", "gen"}
@@ -71,7 +71,7 @@ MAX_PER_TEMA    = 2   # max articoli sullo stesso tema clinico nello stesso dige
 MAX_CANDIDATI_PROMPT = 150  # tetto di candidati inviati al filtro (protegge i token)
 
 # Token per tipo di chiamata.
-# NB: NON reintrodurre il parametro "temperature": e' deprecato per questo modello
+# NB: NON reintrodurre il parametro "temperature": è deprecato per questo modello
 # e l'API risponde 400 (verificato sul run del 03/08/2026).
 MAX_TOKENS_FILTRO          = 800
 MAX_TOKENS_SINTESI_MULTI   = 4000
@@ -91,14 +91,14 @@ TIPI_ARTICOLO = {
 }
 
 # Frase fissa richiesta al modello quando l'abstract non permette di giudicare:
-# essendo fissa, in build_html si puo' decidere di non stampare la riga.
+# essendo fissa, in build_html si può decidere di non stampare la riga.
 LIMITE_NON_DESUMIBILE = "Limiti non desumibili dall'abstract."
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # PRE-FILTRO DETERMINISTICO
 # ═══════════════════════════════════════════════════════════════════════════════
 # Il feed RSS di PubMed non espone il campo PublicationType, ma questi tipi di
-# pubblicazione sono riconoscibili dal titolo. Filtrarli qui e' deterministico
+# pubblicazione sono riconoscibili dal titolo. Filtrarli qui è deterministico
 # e a costo zero, invece di delegarlo al prompt di filtro.
 ESCLUSIONI_TITOLO = [
     r"^correction\b", r"^corrigendum\b", r"^erratum\b", r"^retraction\b",
@@ -114,14 +114,14 @@ ESCLUSIONI_TITOLO = [
 # Lunghezza minima dell'abstract. A 200 il run del 03/08 scartava anche ricerca
 # originale (SEP-1 e sepsi, arresto cardiaco pediatrico, blocco PENG ecoguidato):
 # abbassata a 120, ora che il filtro sui titoli intercetta lettere e correzioni.
-# La lunghezza effettiva e' loggata a ogni scarto, per tararla sui dati.
+# La lunghezza effettiva è loggata a ogni scarto, per tararla sui dati.
 ABSTRACT_MIN_CHARS = 120
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # E-UTILITIES efetch — abstract veri e tipi di pubblicazione
 # ═══════════════════════════════════════════════════════════════════════════════
 # Il feed RSS di PubMed non contiene l'abstract per una larga quota di record
-# (segnaposto di 11 caratteri) ne' il campo PublicationType. efetch fornisce
+# (segnaposto di 11 caratteri) né il campo PublicationType. efetch fornisce
 # entrambi con una sola richiesta per lotto di PMID.
 EFETCH_URL     = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 EFETCH_BATCH   = 200   # PMID per richiesta (POST, nessun limite di lunghezza URL)
@@ -132,7 +132,7 @@ NCBI_EMAIL     = ""    # opzionale: NCBI chiede un contatto per usi automatizzat
 
 # PublicationType da escludere. Etichette ufficiali PubMed: esatte, non euristiche.
 # NB: "Review" e "Practice Guideline" NON sono qui: revisioni sistematiche e linee
-# guida sono fra i contenuti piu' utili del digest.
+# guida sono fra i contenuti più utili del digest.
 PUBTYPE_ESCLUSI = {
     "Letter", "Comment", "Editorial", "Published Erratum", "Retraction of Publication",
     "Retracted Publication", "Expression of Concern", "Case Reports", "News",
@@ -141,7 +141,7 @@ PUBTYPE_ESCLUSI = {
     "Personal Narrative", "Introductory Journal Article", "Patient Education Handout",
 }
 
-# Tipi da segnalare al filtro come indizio di qualita' metodologica.
+# Tipi da segnalare al filtro come indizio di qualità metodologica.
 PUBTYPE_PRIORITARI = [
     "Randomized Controlled Trial", "Meta-Analysis", "Systematic Review",
     "Multicenter Study", "Clinical Trial, Phase III", "Practice Guideline",
@@ -150,7 +150,7 @@ PUBTYPE_PRIORITARI = [
 # Schedulazione (trigger esterno via cron-job.org -> workflow_dispatch)
 # Lunedì 13:00 ora di Roma. Il fuso/DST è gestito da cron-job.org, non da GitHub.
 GIORNO_INVIO    = "lunedì"
-ORARIO_INVIO    = "13:00"  # ora di Roma; impostare cosi' su cron-job.org
+ORARIO_INVIO    = "13:00"  # ora di Roma; impostare così su cron-job.org
 
 # Branding
 NOME_NEWSLETTER = "EM Weekly Digest a cura di Francesco Panero"
@@ -176,15 +176,15 @@ CONTESTO_PS = """CONTESTO DEL LETTORE:
   emodinamica interventistica, chirurgia vascolare, endoscopia digestiva
   d'urgenza, rianimazione, TC, ecografia clinica point-of-care.
 
-COME USARE QUESTO CONTESTO: essendo un hub completo, la disponibilita' di risorse
-NON e' un criterio utile di esclusione, perche' quasi tutto e' tecnicamente
-disponibile. Il criterio discriminante e' un altro: la decisione descritta nello
+COME USARE QUESTO CONTESTO: essendo un hub completo, la disponibilità di risorse
+NON è un criterio utile di esclusione, perché quasi tutto è tecnicamente
+disponibile. Il criterio discriminante è un altro: la decisione descritta nello
 studio appartiene al medico d'urgenza nelle prime ore, oppure a un altro
 specialista in un altro momento del percorso?
 
 ATTENZIONE ALLA FINESTRA TEMPORALE. Il lettore gestisce il paziente critico nelle
 PRIME ORE, in shock room e in OBI, fino all'affidamento alla terapia intensiva o
-al reparto. NON e' un rianimatore e non segue la degenza intensiva.
+al reparto. NON è un rianimatore e non segue la degenza intensiva.
 Sono suoi: rianimazione cardiopolmonare e cure immediate post-ROSC, gestione
 iniziale delle vie aeree e della ventilazione, rianimazione del paziente in shock
 nelle prime ore, sedazione e analgesia procedurale, stabilizzazione del trauma e
@@ -194,8 +194,8 @@ NON sono suoi: prognosi e neuroprognosi a giorni di distanza, sedazione e weanin
 durante la degenza intensiva, monitoraggio invasivo prolungato, svezzamento dal
 ventilatore, nutrizione, decisioni di sospensione dei trattamenti, gestione delle
 complicanze tardive della degenza.
-Un articolo di terapia intensiva e' pertinente solo se l'intervento studiato
-inizia nelle prime ore ed e' avviabile in Pronto Soccorso.
+Un articolo di terapia intensiva è pertinente solo se l'intervento studiato
+inizia nelle prime ore ed è avviabile in Pronto Soccorso.
 
 Appartengono inoltre al lettore: triage e stratificazione del rischio, diagnostica
 d'urgenza, terapia delle prime ore, indicazione e timing dell'attivazione di un
@@ -212,25 +212,25 @@ PROMPT_FILTRO_RILEVANZA = """COMPITO: dalla lista di articoli candidati, selezio
 quelli con il maggior impatto sulla pratica clinica quotidiana in Pronto Soccorso,
 Medicina d'Urgenza e Terapia Intensiva.
 
-CRITERI DI SELEZIONE, in ordine di priorita' decrescente:
-1. IMPATTO DECISIONALE - l'articolo puo' modificare una decisione presa in PS nelle
+CRITERI DI SELEZIONE, in ordine di priorità decrescente:
+1. IMPATTO DECISIONALE - l'articolo può modificare una decisione presa in PS nelle
    prime ore: triage, scelta diagnostica, terapia, destinazione del paziente.
 2. LOCUS DECISIONALE - la decisione descritta appartiene al medico d'urgenza nelle
    prime ore, secondo la distinzione del contesto sopra. Uno studio metodologicamente
    ottimo ma su una decisione che non passa dal PS va scartato, non promosso.
 3. QUALITA' METODOLOGICA - trial randomizzati, meta-analisi e revisioni sistematiche
-   prima di studi osservazionali; numerosita' adeguata; endpoint clinici anziche' surrogati.
+   prima di studi osservazionali; numerosità adeguata; endpoint clinici anziché surrogati.
    Il campo TIPO di ogni candidato riporta i PublicationType ufficiali di PubMed:
    usalo come indizio diretto del disegno dello studio.
-4. NOVITA' - a parita' di tutto il resto, preferisci cio' che cambia o ribalta una
-   pratica consolidata rispetto a cio' che conferma quanto gia' noto.
+4. NOVITA' - a parità di tutto il resto, preferisci ciò che cambia o ribalta una
+   pratica consolidata rispetto a ciò che conferma quanto già noto.
 
 VINCOLI DI COMPOSIZIONE:
 - Massimo 2 articoli sullo stesso tema clinico (es. non 3 studi sulla sepsi).
 - Massimo 2 articoli dalla stessa rivista.
 - Almeno 2 articoli devono provenire da riviste con AREA "urgenza" o "generale":
-  le riviste specialistiche pubblicano molto di piu' e tendono a monopolizzare la
-  selezione, ma il lettore e' un medico d'urgenza.
+  le riviste specialistiche pubblicano molto di più e tendono a monopolizzare la
+  selezione, ma il lettore è un medico d'urgenza.
 - Preferisci una selezione che copra aree cliniche diverse.
 
 ESCLUDI:
@@ -240,8 +240,8 @@ ESCLUDI:
 - Cardiologia interventistica elettiva, chirurgia elettiva, oncologia ambulatoriale.
 
 IMPORTANTE: ne verranno pubblicati soltanto {n_finali}; i restanti servono da riserva
-al sistema per rispettare i vincoli di composizione. Ordina quindi dal piu' rilevante
-al meno rilevante con cura, perche' la posizione conta. Se meno di {n} articoli
+al sistema per rispettare i vincoli di composizione. Ordina quindi dal più rilevante
+al meno rilevante con cura, perché la posizione conta. Se meno di {n} articoli
 soddisfano davvero i criteri, restituiscine di meno: non riempire la lista con
 articoli mediocri.
 
@@ -250,24 +250,27 @@ ARTICOLI CANDIDATI:
 
 FORMATO DI RISPOSTA - restituisci SOLO un array JSON valido, senza testo prima o dopo,
 senza blocchi markdown. Scegli esclusivamente PMID presenti nella lista qui sopra:
-non inventare ne' modificare PMID.
+non inventare né modificare PMID.
 
 [
   {{"pmid": "12345678", "tema": "sepsi", "perche": "motivo in max 15 parole"}},
   {{"pmid": "23456789", "tema": "trauma cranico", "perche": "..."}}
 ]
 
-Ordina dal piu' rilevante al meno rilevante."""
+Ordina dal più rilevante al meno rilevante."""
 
 # Regole di traduzione condivise. Vivono nel system prompt delle chiamate di sintesi.
 REGOLE_TRADUZIONE = """REGOLE DI TRADUZIONE (obbligatorie):
+- ORTOGRAFIA: usa gli accenti italiani corretti (è, à, ì, ò, ù, é). Non sostituirli
+  mai con l'apostrofo: si scrive "qualità", non "qualita\'"; "è", non "e\'";
+  "più", non "piu\'"; "perché", non "perche\'".
 - Traduci il SIGNIFICATO clinico, mai parola per parola. Vietati i calchi dall'inglese.
 - Evita i falsi amici: "severe"=grave (non "severo"); "evidence"=prove/evidenze
   (non "evidenza"); "eventually"=infine (non "eventualmente"); "actual"=effettivo/reale
   (non "attuale"); "consistent"=coerente/costante (non "consistente"); "to require"=
   necessitare; "to administer"=somministrare; "rate"=tasso; "significant"
-  (statistico)=statisticamente significativo; "mortality"=mortalita';
-  "morbidity"=morbilita'; "compliance"=aderenza; "management"=gestione;
+  (statistico)=statisticamente significativo; "mortality"=mortalità;
+  "morbidity"=morbilità; "compliance"=aderenza; "management"=gestione;
   "care"=assistenza/cure; "to realize"=rendersi conto.
 - Usa la terminologia clinica italiana corrente: stroke=ictus, seizure=crisi epilettica,
   bleeding=sanguinamento/emorragia, airway=vie aeree, ward=reparto,
@@ -283,8 +286,8 @@ REGOLE_TRADUZIONE = """REGOLE DI TRADUZIONE (obbligatorie):
   rischio relativo (RR), intervallo di confidenza (IC) al 95%, valore di p.
 - NUMERI: riporta cifre e separatore decimale ESATTAMENTE come nell'originale
   (punto decimale: 0.85; p<0.001). Non convertire il punto in virgola: ogni
-  riscrittura di un numero e' un'occasione di errore. Non alterare dosi,
-  unita' di misura, percentuali.
+  riscrittura di un numero è un'occasione di errore. Non alterare dosi,
+  unità di misura, percentuali.
 - Mantieni in forma originale le scale validate (GCS, SOFA, qSOFA, NEWS2, CURB-65).
 - Espandi ogni acronimo alla prima comparsa, poi usa la sigla.
 - Non usare mai "significativo" da solo: specifica "statisticamente significativo"
@@ -313,7 +316,7 @@ PROMPT_SINTESI_MULTI = """Analizza OGNI articolo della lista e produci per ciasc
 quattro campi:
 
 1. "sintesi" - da 90 a 120 parole, che rispondano nell'ordine a: quesito clinico;
-   disegno dello studio e popolazione, con numerosita'; risultato principale con i
+   disegno dello studio e popolazione, con numerosità; risultato principale con i
    numeri chiave e la misura di effetto; ricaduta sulla pratica in PS/Area Critica.
 2. "rilevanza" - UNA sola frase, massimo 30 parole, sulla ricaduta pratica concreta.
 3. "limite" - UNA sola frase, massimo 25 parole, sul principale limite metodologico:
@@ -321,9 +324,9 @@ quattro campi:
    selezionata, interruzione precoce, follow-up breve, conflitti di interesse.
    Se l'abstract non consente di identificare un limite, scrivi esattamente:
    "Limiti non desumibili dall'abstract."
-4. "tipo" - UNO SOLO fra questi quattro valori, riportato esattamente cosi':
+4. "tipo" - UNO SOLO fra questi quattro valori, riportato esattamente così:
    "cambia-pratica" = lo studio modifica una condotta oggi diffusa
-   "conferma"       = rafforza una pratica gia' consolidata
+   "conferma"       = rafforza una pratica già consolidata
    "controverso"    = risultati discordanti con evidenze o linee guida attuali
    "esplorativo"    = ipotesi generatrice, dati preliminari, campione insufficiente
 
@@ -336,7 +339,7 @@ ARTICOLI:
 
 FORMATO DI RISPOSTA - restituisci SOLO un array JSON valido, senza testo prima o dopo,
 senza blocchi markdown, con un oggetto per articolo, nello stesso ordine della lista.
-Riporta il "pmid" esattamente come ti e' stato fornito.
+Riporta il "pmid" esattamente come ti è stato fornito.
 
 [
   {{
@@ -349,17 +352,17 @@ Riporta il "pmid" esattamente come ti e' stato fornito.
 ]"""
 
 # Sintesi di un singolo articolo (fallback se dal multi manca qualcosa).
-# Restituisce un array di UN elemento, cosi' da riusare lo stesso parser del multi.
+# Restituisce un array di UN elemento, così da riusare lo stesso parser del multi.
 PROMPT_SINTESI = """Analizza l'articolo e produci quattro campi:
 
-1. "sintesi" - 90-120 parole: quesito clinico; disegno e popolazione con numerosita';
+1. "sintesi" - 90-120 parole: quesito clinico; disegno e popolazione con numerosità;
    risultato principale con i numeri chiave; ricaduta per PS/Area Critica.
 2. "rilevanza" - una sola frase, massimo 30 parole.
 3. "limite" - una sola frase, massimo 25 parole, sul principale limite metodologico.
    Se non desumibile, scrivi esattamente: "Limiti non desumibili dall'abstract."
 4. "tipo" - uno fra: "cambia-pratica", "conferma", "controverso", "esplorativo".
 
-Se l'abstract e' assente o privo di risultati numerici, dichiaralo nella "sintesi"
+Se l'abstract è assente o privo di risultati numerici, dichiaralo nella "sintesi"
 in una sola frase, non inferire dal titolo, e usa tipo "esplorativo".
 
 Articolo:
@@ -393,7 +396,7 @@ def valida_config():
     mancanti = []
     if not ANTHROPIC_API_KEY: mancanti.append("ANTHROPIC_API_KEY")
     # In dry run non si invia nulla: le credenziali Gmail e i destinatari
-    # non servono, cosi' la prova gira anche in locale senza token.
+    # non servono, così la prova gira anche in locale senza token.
     if not DRY_RUN:
         if not GMAIL_USER:  mancanti.append("GMAIL_USER")
         if not GMAIL_TOKEN: mancanti.append("GMAIL_TOKEN")
