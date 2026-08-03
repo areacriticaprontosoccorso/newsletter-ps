@@ -152,16 +152,32 @@ LOGO_URL        = "https://raw.githubusercontent.com/areacriticaprontosoccorso/n
 # Contesto operativo del PS. Serve al filtro per scartare articoli inapplicabili
 # (percorsi organizzativi esteri, farmaci non in commercio in Italia, risorse assenti).
 CONTESTO_PS = """CONTESTO DEL LETTORE:
-- Pronto Soccorso generale per adulti di ospedale urbano, Torino, Italia.
+- Pronto Soccorso e Medicina d'Urgenza di un DEA di II livello, ospedale urbano
+  di Torino, Servizio Sanitario Nazionale italiano.
+- Casistica esclusivamente adulta, indifferenziata, con prevalenza di patologia
+  medica acuta e una quota rilevante di anziani fragili e pluripatologici.
 - Annesse Osservazione Breve Intensiva e Area Critica/shock room.
-- Casistica: indifferenziata, prevalenza di patologia medica acuta,
-  quota rilevante di anziani fragili e pluripatologici.
-- Servizi disponibili sul posto: [DA COMPLETARE - es. TC h24, ecografia clinica
-  point-of-care, emodinamica, endoscopia d'urgenza, rianimazione]
-- Servizi NON presenti (paziente trasferito): [DA COMPLETARE - es. neurochirurgia,
-  cardiochirurgia, centro ustioni]
-- Sistema sanitario pubblico italiano: privilegia interventi con farmaci
-  in commercio in Italia e risorse realisticamente disponibili."""
+- Sono presenti in sede e attivabili h24: neurochirurgia, cardiochirurgia,
+  emodinamica interventistica, chirurgia vascolare, rianimazione, TC,
+  ecografia clinica point-of-care.
+
+COME USARE QUESTO CONTESTO: essendo un hub completo, la disponibilita' di risorse
+NON e' un criterio utile di esclusione, perche' quasi tutto e' tecnicamente
+disponibile. Il criterio discriminante e' un altro: la decisione descritta nello
+studio appartiene al medico d'urgenza nelle prime ore, oppure a un altro
+specialista in un altro momento del percorso?
+
+Appartengono al lettore: triage e stratificazione del rischio, diagnostica
+d'urgenza, terapia delle prime ore, indicazione e timing dell'attivazione di un
+percorso tempo-dipendente, gestione in OBI e area critica, decisione di ricovero
+o dimissione.
+
+NON appartengono al lettore: gestione perioperatoria di chirurgia programmata,
+terapia cronica e prevenzione a lungo termine, follow-up ambulatoriale, decisioni
+prese in reparto o in sala operatoria dopo il ricovero. Il fatto che il servizio
+esista in ospedale non rende l'argomento pertinente.
+
+Privilegia inoltre gli interventi con farmaci in commercio in Italia."""
 
 PROMPT_FILTRO_RILEVANZA = """COMPITO: dalla lista di articoli candidati, seleziona al massimo {n} articoli,
 quelli con il maggior impatto sulla pratica clinica quotidiana in Pronto Soccorso,
@@ -170,8 +186,9 @@ Medicina d'Urgenza e Terapia Intensiva.
 CRITERI DI SELEZIONE, in ordine di priorita' decrescente:
 1. IMPATTO DECISIONALE - l'articolo puo' modificare una decisione presa in PS nelle
    prime ore: triage, scelta diagnostica, terapia, destinazione del paziente.
-2. APPLICABILITA' - l'intervento e' realizzabile nel contesto descritto sopra.
-   Scarta studi su farmaci non disponibili in Italia o su risorse assenti.
+2. LOCUS DECISIONALE - la decisione descritta appartiene al medico d'urgenza nelle
+   prime ore, secondo la distinzione del contesto sopra. Uno studio metodologicamente
+   ottimo ma su una decisione che non passa dal PS va scartato, non promosso.
 3. QUALITA' METODOLOGICA - trial randomizzati, meta-analisi e revisioni sistematiche
    prima di studi osservazionali; numerosita' adeguata; endpoint clinici anziche' surrogati.
    Il campo TIPO di ogni candidato riporta i PublicationType ufficiali di PubMed:
