@@ -10,6 +10,11 @@ name: EM Weekly Digest
 # inattivita' e parte solo quando lo chiama cron-job.org (o un avvio manuale).
 on:
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Prova a vuoto: esegue tutto ma NON invia l'email"
+        type: boolean
+        default: false
 
 # Evita doppi invii se cron-job.org spara due trigger ravvicinati:
 # il secondo run attende (non cancella) ma non gira in parallelo.
@@ -45,4 +50,19 @@ jobs:
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_TOKEN: ${{ secrets.GMAIL_TOKEN }}
           DESTINATARI: ${{ secrets.DESTINATARI }}
+          # Vuoto quando il workflow parte da cron-job.org: l'invio resta il default.
+          DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
         run: python newsletter_rss.py
+
+      # Caricato anche quando lo step precedente fallisce: il log e' proprio
+      # cio' che serve quando qualcosa e' andato storto.
+      - name: Carica anteprima e log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ github.run_number }}
+          path: |
+            anteprima_digest.html
+            newsletter.log
+          if-no-files-found: warn
+          retention-days: 14
