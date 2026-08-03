@@ -164,6 +164,7 @@ def fetch_feed(rivista):
             "titolo":     titolo.rstrip("."),
             "autori":     autori,
             "rivista":    rivista["nome"],
+            "gruppo":     rivista.get("gruppo", "spec"),
             "data":       pubdate.strftime("%Y %b %d") if pubdate else "",
             "pubdate_dt": pubdate,
             "doi":        doi,
@@ -394,6 +395,44 @@ def chiama_claude(prompt, max_tokens=1500, system=None):
     raise RuntimeError(ultimo_errore or "Anthropic API: fallito dopo i retry")
 
 
+def componi_digest(graduatoria):
+    """Dai fino ad ARTICOLI_RICHIESTI in graduatoria estrae ARTICOLI_FINALI,
+    garantendo almeno MIN_EM_GEN articoli da riviste di urgenza o generaliste.
+    Gli scambi avvengono solo fra articoli gia' selezionati dal modello: non si
+    reintroduce mai materiale non vagliato."""
+    scelti = graduatoria[:cfg.ARTICOLI_FINALI]
+    panchina = graduatoria[cfg.ARTICOLI_FINALI:]
+
+    def prioritario(a):
+        return a.get("gruppo") in cfg.GRUPPI_PRIORITARI
+
+    mancanti = cfg.MIN_EM_GEN - sum(1 for a in scelti if prioritario(a))
+    while mancanti > 0:
+        # candidato in entrata: il primo em/gen in panchina (ordine = rilevanza)
+        entra = next((a for a in panchina if prioritario(a)), None)
+        # candidato in uscita: lo specialistico peggio piazzato fra i scelti
+        esce = next((a for a in reversed(scelti) if not prioritario(a)), None)
+        if entra is None or esce is None:
+            log.warning(
+                f"Quota riviste urgenza/generaliste non raggiunta: mancano "
+                f"{mancanti} - nessuno scambio possibile in graduatoria"
+            )
+            break
+        log.info(
+            f"    scambio per quota AREA: entra {entra['pmid']} ({entra['rivista']}), "
+            f"esce {esce['pmid']} ({esce['rivista']})"
+        )
+        scelti[scelti.index(esce)] = entra
+        panchina.remove(entra)
+        mancanti -= 1
+
+    # si ripristina l'ordine di rilevanza deciso dal modello
+    scelti.sort(key=lambda a: graduatoria.index(a))
+    n_prior = sum(1 for a in scelti if prioritario(a))
+    log.info(f"Composizione: {n_prior} da riviste urgenza/generaliste su {len(scelti)}")
+    return scelti
+
+
 def filtra_top_articoli(candidati):
     if len(candidati) <= cfg.ARTICOLI_FINALI:
         return candidati
@@ -416,15 +455,20 @@ def filtra_top_articoli(candidati):
         blocchi.append(
             f"PMID: {a['pmid']}\n"
             f"RIVISTA: {a['rivista']} ({a['data']})\n"
+            f"AREA: {cfg.ETICHETTA_GRUPPO.get(a.get('gruppo'), 'specialistica')}\n"
             f"TIPO: {', '.join(a.get('pubtypes') or []) or 'non disponibile'}\n"
             f"TITOLO: {a['titolo']}\n"
             f"ABSTRACT: {a['abstract'][:700]}"
         )
     prompt = cfg.PROMPT_FILTRO_RILEVANZA.format(
-        n=cfg.ARTICOLI_FINALI,
+        n=cfg.ARTICOLI_RICHIESTI,
+        n_finali=cfg.ARTICOLI_FINALI,
         articoli="\n\n---\n\n".join(blocchi),
     )
-    log.info(f"Claude filtra {len(candidati)} candidati -> max {cfg.ARTICOLI_FINALI}")
+    log.info(
+        f"Claude filtra {len(candidati)} candidati -> {cfg.ARTICOLI_RICHIESTI} in "
+        f"graduatoria, {cfg.ARTICOLI_FINALI} pubblicati"
+    )
     if cfg.DRY_RUN:
         log.info("--- CANDIDATI INVIATI AL FILTRO ---")
         for a in candidati:
@@ -443,7 +487,7 @@ def filtra_top_articoli(candidati):
             system=cfg.SYSTEM_FILTRO,
         )
         for voce in _estrai_json_array(risposta):
-            if len(selezionati) >= cfg.ARTICOLI_FINALI:
+            if len(selezionati) >= cfg.ARTICOLI_RICHIESTI:
                 break
             if not isinstance(voce, dict):
                 continue
@@ -494,6 +538,7 @@ def filtra_top_articoli(candidati):
             selezionati.append(a)
             gia.add(a["pmid"])
 
+    selezionati = componi_digest(selezionati)
     log.info(f"Selezione finale: {len(selezionati)} articoli")
     return selezionati
 

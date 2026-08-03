@@ -29,26 +29,30 @@ NCBI_TOOL          = "em_weekly_digest_torino"  # User-Agent per i feed PubMed
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # RIVISTE TARGET (15)
+# "gruppo": em = medicina d'urgenza | gen = medicina generale | spec = specialistica.
+# Serve al vincolo di composizione: il digest deve contenere almeno
+# MIN_EM_GEN articoli da riviste em o gen, per non scivolare tutto sulle
+# specialistiche, che pubblicano molto di piu'.
 # ═══════════════════════════════════════════════════════════════════════════════
 RIVISTE = [
-    {"nome": "New England Journal of Medicine", "nlmta": "N Engl J Med",       "issn": "0028-4793"},
-    {"nome": "The Lancet",                      "nlmta": "Lancet",             "issn": "0140-6736"},
-    {"nome": "JAMA",                            "nlmta": "JAMA",               "issn": "0098-7484"},
-    {"nome": "BMJ",                             "nlmta": "BMJ",                "issn": "0959-8138"},
-    {"nome": "Circulation",                     "nlmta": "Circulation",        "issn": "0009-7322"},
-    {"nome": "Chest",                           "nlmta": "Chest",              "issn": "0012-3692"},
-    {"nome": "Annals of Emergency Medicine",    "nlmta": "Ann Emerg Med",      "issn": "0196-0644"},
-    {"nome": "Critical Care Medicine",          "nlmta": "Crit Care Med",      "issn": "0090-3493"},
-    {"nome": "Intensive Care Medicine",         "nlmta": "Intensive Care Med", "issn": "0342-4642"},
-    {"nome": "Resuscitation",                   "nlmta": "Resuscitation",      "issn": "0300-9572"},
-    {"nome": "Academic Emergency Medicine",     "nlmta": "Acad Emerg Med",     "issn": "1069-6563"},
-    {"nome": "Emergency Medicine Journal",      "nlmta": "Emerg Med J",        "issn": "1472-0205"},
+    {"nome": "New England Journal of Medicine", "nlmta": "N Engl J Med",       "issn": "0028-4793", "gruppo": "gen"},
+    {"nome": "The Lancet",                      "nlmta": "Lancet",             "issn": "0140-6736", "gruppo": "gen"},
+    {"nome": "JAMA",                            "nlmta": "JAMA",               "issn": "0098-7484", "gruppo": "gen"},
+    {"nome": "BMJ",                             "nlmta": "BMJ",                "issn": "0959-8138", "gruppo": "gen"},
+    {"nome": "Circulation",                     "nlmta": "Circulation",        "issn": "0009-7322", "gruppo": "spec"},
+    {"nome": "Chest",                           "nlmta": "Chest",              "issn": "0012-3692", "gruppo": "spec"},
+    {"nome": "Annals of Emergency Medicine",    "nlmta": "Ann Emerg Med",      "issn": "0196-0644", "gruppo": "em"},
+    {"nome": "Critical Care Medicine",          "nlmta": "Crit Care Med",      "issn": "0090-3493", "gruppo": "spec"},
+    {"nome": "Intensive Care Medicine",         "nlmta": "Intensive Care Med", "issn": "0342-4642", "gruppo": "spec"},
+    {"nome": "Resuscitation",                   "nlmta": "Resuscitation",      "issn": "0300-9572", "gruppo": "em"},
+    {"nome": "Academic Emergency Medicine",     "nlmta": "Acad Emerg Med",     "issn": "1069-6563", "gruppo": "em"},
+    {"nome": "Emergency Medicine Journal",      "nlmta": "Emerg Med J",        "issn": "1472-0205", "gruppo": "em"},
     # Aggiunte: colmano i buchi su neurologia vascolare e terapia intensiva open access.
-    {"nome": "Stroke",                          "nlmta": "Stroke",             "issn": "0039-2499"},
+    {"nome": "Stroke",                          "nlmta": "Stroke",             "issn": "0039-2499", "gruppo": "spec"},
     # Critical Care e' solo online: se il feed torna vuoto, usare l'eISSN 1466-609X.
-    {"nome": "Critical Care",                   "nlmta": "Crit Care",          "issn": "1364-8535"},
+    {"nome": "Critical Care",                   "nlmta": "Crit Care",          "issn": "1364-8535", "gruppo": "spec"},
     # Annals of Intensive Care e' solo online e ha un unico ISSN.
-    {"nome": "Annals of Intensive Care",        "nlmta": "Ann Intensive Care", "issn": "2110-5820"},
+    {"nome": "Annals of Intensive Care",        "nlmta": "Ann Intensive Care", "issn": "2110-5820", "gruppo": "spec"},
 ]
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -57,6 +61,11 @@ RIVISTE = [
 GIORNI_RICERCA  = 7   # finestra temporale: ultimi 7 giorni (settimana)
 GIORNI_RICERCA_ESTESO = 14  # fallback se la settimana e' troppo povera
 ARTICOLI_FINALI = 5   # numero articoli nel digest finale
+ARTICOLI_RICHIESTI = 8  # quanti chiederne al modello: i 3 in piu' sono la riserva
+                        # da cui il codice attinge per rispettare i vincoli
+MIN_EM_GEN = 2        # minimo di articoli da riviste "em" o "gen" nel digest
+GRUPPI_PRIORITARI = {"em", "gen"}
+ETICHETTA_GRUPPO = {"em": "urgenza", "gen": "generale", "spec": "specialistica"}
 MINIMO_ARTICOLI = 3   # sotto questa soglia scatta il fallback di riempimento
 MAX_PER_TEMA    = 2   # max articoli sullo stesso tema clinico nello stesso digest
 MAX_CANDIDATI_PROMPT = 150  # tetto di candidati inviati al filtro (protegge i token)
@@ -173,10 +182,24 @@ disponibile. Il criterio discriminante e' un altro: la decisione descritta nello
 studio appartiene al medico d'urgenza nelle prime ore, oppure a un altro
 specialista in un altro momento del percorso?
 
-Appartengono al lettore: triage e stratificazione del rischio, diagnostica
+ATTENZIONE ALLA FINESTRA TEMPORALE. Il lettore gestisce il paziente critico nelle
+PRIME ORE, in shock room e in OBI, fino all'affidamento alla terapia intensiva o
+al reparto. NON e' un rianimatore e non segue la degenza intensiva.
+Sono suoi: rianimazione cardiopolmonare e cure immediate post-ROSC, gestione
+iniziale delle vie aeree e della ventilazione, rianimazione del paziente in shock
+nelle prime ore, sedazione e analgesia procedurale, stabilizzazione del trauma e
+del danno cerebrale acuto prima del trasferimento, indicazione al ricovero
+intensivo.
+NON sono suoi: prognosi e neuroprognosi a giorni di distanza, sedazione e weaning
+durante la degenza intensiva, monitoraggio invasivo prolungato, svezzamento dal
+ventilatore, nutrizione, decisioni di sospensione dei trattamenti, gestione delle
+complicanze tardive della degenza.
+Un articolo di terapia intensiva e' pertinente solo se l'intervento studiato
+inizia nelle prime ore ed e' avviabile in Pronto Soccorso.
+
+Appartengono inoltre al lettore: triage e stratificazione del rischio, diagnostica
 d'urgenza, terapia delle prime ore, indicazione e timing dell'attivazione di un
-percorso tempo-dipendente, gestione in OBI e area critica, decisione di ricovero
-o dimissione.
+percorso tempo-dipendente, gestione in OBI, decisione di ricovero o dimissione.
 
 NON appartengono al lettore: gestione perioperatoria di chirurgia programmata,
 terapia cronica e prevenzione a lungo termine, follow-up ambulatoriale, decisioni
@@ -185,7 +208,7 @@ esista in ospedale non rende l'argomento pertinente.
 
 Privilegia inoltre gli interventi con farmaci in commercio in Italia."""
 
-PROMPT_FILTRO_RILEVANZA = """COMPITO: dalla lista di articoli candidati, seleziona al massimo {n} articoli,
+PROMPT_FILTRO_RILEVANZA = """COMPITO: dalla lista di articoli candidati, seleziona fino a {n} articoli,
 quelli con il maggior impatto sulla pratica clinica quotidiana in Pronto Soccorso,
 Medicina d'Urgenza e Terapia Intensiva.
 
@@ -205,6 +228,9 @@ CRITERI DI SELEZIONE, in ordine di priorita' decrescente:
 VINCOLI DI COMPOSIZIONE:
 - Massimo 2 articoli sullo stesso tema clinico (es. non 3 studi sulla sepsi).
 - Massimo 2 articoli dalla stessa rivista.
+- Almeno 2 articoli devono provenire da riviste con AREA "urgenza" o "generale":
+  le riviste specialistiche pubblicano molto di piu' e tendono a monopolizzare la
+  selezione, ma il lettore e' un medico d'urgenza.
 - Preferisci una selezione che copra aree cliniche diverse.
 
 ESCLUDI:
@@ -213,9 +239,11 @@ ESCLUDI:
 - Ricerca di base o preclinica senza ricaduta clinica immediata.
 - Cardiologia interventistica elettiva, chirurgia elettiva, oncologia ambulatoriale.
 
-IMPORTANTE: se meno di {n} articoli soddisfano davvero questi criteri, restituiscine
-di meno. Non completare la lista con articoli mediocri: una selezione di 3 articoli
-solidi e' preferibile a 5 di cui 2 irrilevanti.
+IMPORTANTE: ne verranno pubblicati soltanto {n_finali}; i restanti servono da riserva
+al sistema per rispettare i vincoli di composizione. Ordina quindi dal piu' rilevante
+al meno rilevante con cura, perche' la posizione conta. Se meno di {n} articoli
+soddisfano davvero i criteri, restituiscine di meno: non riempire la lista con
+articoli mediocri.
 
 ARTICOLI CANDIDATI:
 {articoli}
