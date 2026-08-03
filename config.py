@@ -88,6 +88,7 @@ TIPI_ARTICOLO = {
     "conferma":       {"label": "Conferma",          "colore": "#4a7c59"},
     "controverso":    {"label": "Controverso",       "colore": "#b8860b"},
     "esplorativo":    {"label": "Esplorativo",       "colore": "#6b7a8f"},
+    "revisione":      {"label": "Revisione",         "colore": "#6f5b8e"},
 }
 
 # Frase fissa richiesta al modello quando l'abstract non permette di giudicare:
@@ -142,6 +143,16 @@ PUBTYPE_ESCLUSI = {
 }
 
 # Tipi da segnalare al filtro come indizio di qualità metodologica.
+# PublicationType che identificano una sintesi di letteratura senza dati primari:
+# su questi il badge "revisione" viene imposto in codice, senza chiederlo al modello.
+# "Meta-Analysis" e' escluso di proposito: una metanalisi produce stime quantitative
+# proprie e puo' legittimamente essere "cambia-pratica".
+PUBTYPE_REVISIONE = {
+    "Review", "Systematic Review", "Scoping Review", "Practice Guideline",
+    "Guideline", "Consensus Development Conference",
+    "Consensus Development Conference, NIH",
+}
+
 PUBTYPE_PRIORITARI = [
     "Randomized Controlled Trial", "Meta-Analysis", "Systematic Review",
     "Multicenter Study", "Clinical Trial, Phase III", "Practice Guideline",
@@ -193,9 +204,16 @@ intensivo.
 NON sono suoi: prognosi e neuroprognosi a giorni di distanza, sedazione e weaning
 durante la degenza intensiva, monitoraggio invasivo prolungato, svezzamento dal
 ventilatore, nutrizione, decisioni di sospensione dei trattamenti, gestione delle
-complicanze tardive della degenza.
+complicanze tardive della degenza. In particolare NON sono suoi: monitoraggio
+invasivo della pressione intracranica, neuromonitoraggio multimodale, morfologia
+dell'onda pressoria, autoregolazione cerebrale, e in generale la gestione
+neurorianimatoria che segue il ricovero in terapia intensiva.
 Un articolo di terapia intensiva è pertinente solo se l'intervento studiato
 inizia nelle prime ore ed è avviabile in Pronto Soccorso.
+NON basta che l'articolo menzioni la fase acuta, la stabilizzazione o il
+pre-trasferimento per renderlo pertinente: conta dove e quando l'intervento
+studiato viene effettivamente avviato. Se richiede strumentazione o competenze
+disponibili solo dopo il ricovero in terapia intensiva, scartalo.
 
 Appartengono inoltre al lettore: triage e stratificazione del rischio, diagnostica
 d'urgenza, terapia delle prime ore, indicazione e timing dell'attivazione di un
@@ -208,7 +226,7 @@ esista in ospedale non rende l'argomento pertinente.
 
 Privilegia inoltre gli interventi con farmaci in commercio in Italia."""
 
-PROMPT_FILTRO_RILEVANZA = """COMPITO: dalla lista di articoli candidati, seleziona fino a {n} articoli,
+PROMPT_FILTRO_RILEVANZA = """COMPITO: dalla lista di articoli candidati, restituisci una GRADUATORIA di {n} articoli,
 quelli con il maggior impatto sulla pratica clinica quotidiana in Pronto Soccorso,
 Medicina d'Urgenza e Terapia Intensiva.
 
@@ -239,11 +257,13 @@ ESCLUDI:
 - Ricerca di base o preclinica senza ricaduta clinica immediata.
 - Cardiologia interventistica elettiva, chirurgia elettiva, oncologia ambulatoriale.
 
-IMPORTANTE: ne verranno pubblicati soltanto {n_finali}; i restanti servono da riserva
-al sistema per rispettare i vincoli di composizione. Ordina quindi dal più rilevante
-al meno rilevante con cura, perché la posizione conta. Se meno di {n} articoli
-soddisfano davvero i criteri, restituiscine di meno: non riempire la lista con
-articoli mediocri.
+IMPORTANTE - LUNGHEZZA DELLA GRADUATORIA: devi restituire ESATTAMENTE {n} voci,
+non {n_finali}. Ne verranno pubblicate soltanto le prime {n_finali}: le voci dalla
+{n_finali} in poi sono la riserva da cui il sistema attinge per rispettare i vincoli
+di composizione, e servono anche quando sono meno interessanti delle prime. Restituisci
+meno di {n} voci solo se i candidati validi sono davvero meno di {n}.
+L'ORDINE CONTA: ordina dalla più rilevante alla meno rilevante con cura, perché la
+posizione determina cosa viene pubblicato.
 
 ARTICOLI CANDIDATI:
 {articoli}
@@ -264,6 +284,9 @@ REGOLE_TRADUZIONE = """REGOLE DI TRADUZIONE (obbligatorie):
 - ORTOGRAFIA: usa gli accenti italiani corretti (è, à, ì, ò, ù, é). Non sostituirli
   mai con l'apostrofo: si scrive "qualità", non "qualita\'"; "è", non "e\'";
   "più", non "piu\'"; "perché", non "perche\'".
+- ORTOGRAFIA DI TERMINI RICORRENTI, spesso storpiati: si scrive "preospedaliero"
+  (non "preistospedaliero" né "prestospedaliero"), "intraospedaliero",
+  "extraospedaliero", "endovenoso", "endotracheale", "emogasanalisi".
 - Traduci il SIGNIFICATO clinico, mai parola per parola. Vietati i calchi dall'inglese.
 - Evita i falsi amici: "severe"=grave (non "severo"); "evidence"=prove/evidenze
   (non "evidenza"); "eventually"=infine (non "eventualmente"); "actual"=effettivo/reale
@@ -322,13 +345,21 @@ quattro campi:
 3. "limite" - UNA sola frase, massimo 25 parole, sul principale limite metodologico:
    monocentrico, non in cieco, endpoint surrogato, campione ridotto, popolazione
    selezionata, interruzione precoce, follow-up breve, conflitti di interesse.
-   Se l'abstract non consente di identificare un limite, scrivi esattamente:
-   "Limiti non desumibili dall'abstract."
-4. "tipo" - UNO SOLO fra questi quattro valori, riportato esattamente così:
+   Per le sintesi di letteratura il limite riguarda il metodo della revisione:
+   narrativa e non sistematica, selezione degli studi non riproducibile, assenza
+   di valutazione formale della qualità, eterogeneità degli studi inclusi.
+   Solo se l'abstract non consente davvero di identificare alcun limite, scrivi
+   esattamente: "Limiti non desumibili dall'abstract."
+4. "tipo" - UNO SOLO fra questi valori, riportato esattamente così:
    "cambia-pratica" = lo studio modifica una condotta oggi diffusa
    "conferma"       = rafforza una pratica già consolidata
    "controverso"    = risultati discordanti con evidenze o linee guida attuali
    "esplorativo"    = ipotesi generatrice, dati preliminari, campione insufficiente
+   "revisione"      = sintesi di letteratura senza dati primari originali: review
+                      narrativa, scoping review, revisione sistematica, linea guida.
+                      Usa SEMPRE questo valore per le sintesi di letteratura, anche
+                      quando le conclusioni sono preliminari: "esplorativo" è
+                      riservato agli studi con dati primari.
 
 SE L'ABSTRACT E' ASSENTE O PRIVO DI RISULTATI NUMERICI: scrivi nella "sintesi" una
 sola frase che lo dichiari esplicitamente, non inferire nulla dal titolo, usa
@@ -359,8 +390,11 @@ PROMPT_SINTESI = """Analizza l'articolo e produci quattro campi:
    risultato principale con i numeri chiave; ricaduta per PS/Area Critica.
 2. "rilevanza" - una sola frase, massimo 30 parole.
 3. "limite" - una sola frase, massimo 25 parole, sul principale limite metodologico.
-   Se non desumibile, scrivi esattamente: "Limiti non desumibili dall'abstract."
-4. "tipo" - uno fra: "cambia-pratica", "conferma", "controverso", "esplorativo".
+   Per le revisioni: limite del metodo della revisione (narrativa, selezione non
+   riproducibile, eterogeneità degli studi). Solo se davvero non desumibile,
+   scrivi esattamente: "Limiti non desumibili dall'abstract."
+4. "tipo" - uno fra: "cambia-pratica", "conferma", "controverso", "esplorativo",
+   "revisione" (quest'ultimo per ogni sintesi di letteratura senza dati primari).
 
 Se l'abstract è assente o privo di risultati numerici, dichiaralo nella "sintesi"
 in una sola frase, non inferire dal titolo, e usa tipo "esplorativo".

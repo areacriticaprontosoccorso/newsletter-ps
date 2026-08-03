@@ -565,6 +565,23 @@ def _voce_sintesi(voce):
     }
 
 
+def forza_tipo_revisione(art):
+    """Il badge delle sintesi di letteratura non si chiede al modello: si deduce dai
+    PublicationType di PubMed, che sono esatti. Il modello tendeva a etichettarle
+    "esplorativo" anche con istruzione esplicita."""
+    tipi = set(art.get("pubtypes") or [])
+    if "Meta-Analysis" in tipi:
+        return art
+    if tipi & cfg.PUBTYPE_REVISIONE:
+        if art.get("tipo") != "revisione":
+            log.info(
+                f"    PMID {art['pmid']}: tipo '{art.get('tipo') or 'vuoto'}' -> "
+                "'revisione' (imposto da PublicationType)"
+            )
+        art["tipo"] = "revisione"
+    return art
+
+
 def _sintesi_vuota(art):
     art["sintesi_it"] = art.get("sintesi_it") or ""
     art["rilevanza"]  = art.get("rilevanza")  or ""
@@ -636,9 +653,11 @@ def sintetizza_articoli(articoli):
         dati = per_pmid.get(art["pmid"])
         if dati:
             art.update(dati)
+            forza_tipo_revisione(art)
         else:
             log.warning(f"PMID {art['pmid']} assente dalla sintesi multipla - fallback singolo")
             sintetizza_articolo(art)
+            forza_tipo_revisione(art)
             time.sleep(1)
     return articoli
 
