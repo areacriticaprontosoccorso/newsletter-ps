@@ -102,6 +102,36 @@ ESCLUSIONI_TITOLO = [
 # La lunghezza effettiva e' loggata a ogni scarto, per tararla sui dati.
 ABSTRACT_MIN_CHARS = 120
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# E-UTILITIES efetch — abstract veri e tipi di pubblicazione
+# ═══════════════════════════════════════════════════════════════════════════════
+# Il feed RSS di PubMed non contiene l'abstract per una larga quota di record
+# (segnaposto di 11 caratteri) ne' il campo PublicationType. efetch fornisce
+# entrambi con una sola richiesta per lotto di PMID.
+EFETCH_URL     = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
+EFETCH_BATCH   = 200   # PMID per richiesta (POST, nessun limite di lunghezza URL)
+EFETCH_TIMEOUT = 30
+EFETCH_RETRY   = 2     # tentativi aggiuntivi prima di degradare sulla description RSS
+NCBI_TOOL      = "newsletter-ps"
+NCBI_EMAIL     = ""    # opzionale: NCBI chiede un contatto per usi automatizzati
+
+# PublicationType da escludere. Etichette ufficiali PubMed: esatte, non euristiche.
+# NB: "Review" e "Practice Guideline" NON sono qui: revisioni sistematiche e linee
+# guida sono fra i contenuti piu' utili del digest.
+PUBTYPE_ESCLUSI = {
+    "Letter", "Comment", "Editorial", "Published Erratum", "Retraction of Publication",
+    "Retracted Publication", "Expression of Concern", "Case Reports", "News",
+    "Newspaper Article", "Biography", "Historical Article", "Portrait", "Interview",
+    "Congress", "Video-Audio Media", "Address", "Autobiography", "Bibliography",
+    "Personal Narrative", "Introductory Journal Article", "Patient Education Handout",
+}
+
+# Tipi da segnalare al filtro come indizio di qualita' metodologica.
+PUBTYPE_PRIORITARI = [
+    "Randomized Controlled Trial", "Meta-Analysis", "Systematic Review",
+    "Multicenter Study", "Clinical Trial, Phase III", "Practice Guideline",
+]
+
 # Schedulazione (trigger esterno via cron-job.org -> workflow_dispatch)
 # Lunedì 13:00 ora di Roma. Il fuso/DST è gestito da cron-job.org, non da GitHub.
 GIORNO_INVIO    = "lunedì"
@@ -144,6 +174,8 @@ CRITERI DI SELEZIONE, in ordine di priorita' decrescente:
    Scarta studi su farmaci non disponibili in Italia o su risorse assenti.
 3. QUALITA' METODOLOGICA - trial randomizzati, meta-analisi e revisioni sistematiche
    prima di studi osservazionali; numerosita' adeguata; endpoint clinici anziche' surrogati.
+   Il campo TIPO di ogni candidato riporta i PublicationType ufficiali di PubMed:
+   usalo come indizio diretto del disegno dello studio.
 4. NOVITA' - a parita' di tutto il resto, preferisci cio' che cambia o ribalta una
    pratica consolidata rispetto a cio' che conferma quanto gia' noto.
 

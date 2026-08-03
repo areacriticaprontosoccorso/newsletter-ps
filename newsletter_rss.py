@@ -13,6 +13,7 @@ import logging
 import base64
 import urllib.request
 import urllib.error
+import urllib.parse
 import xml.etree.ElementTree as ET
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -181,6 +182,110 @@ def fetch_feed(rivista):
     return articoli
 
 
+def _parse_abstract(art_el):
+    """Ricompone l'abstract, che PubMed espone spesso in sezioni etichettate."""
+    parti = []
+    for el in art_el.findall("./Abstract/AbstractText"):
+        testo = "".join(el.itertext()).strip()
+        if not testo:
+            continue
+        etichetta = (el.get("Label") or "").strip()
+        parti.append(f"{etichetta}: {testo}" if etichetta else testo)
+    return re.sub(r"\s+", " ", " ".join(parti)).strip()
+
+
+def _efetch_lotto(pmids):
+    """Una richiesta efetch per un lotto di PMID. Solleva se non riesce."""
+    campi = {
+        "db": "pubmed",
+        "id": ",".join(pmids),
+        "retmode": "xml",
+        "tool": cfg.NCBI_TOOL,
+    }
+    if cfg.NCBI_EMAIL:
+        campi["email"] = cfg.NCBI_EMAIL
+    req = urllib.request.Request(
+        cfg.EFETCH_URL,
+        data=urllib.parse.urlencode(campi).encode("utf-8"),
+        headers={"User-Agent": f"{cfg.NCBI_TOOL} (PubMed digest)"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=cfg.EFETCH_TIMEOUT) as r:
+        xml = r.read()
+
+    dettagli = {}
+    radice = ET.fromstring(xml)
+    for art in radice.findall(".//PubmedArticle"):
+        pmid_el = art.find("./MedlineCitation/PMID")
+        art_el = art.find("./MedlineCitation/Article")
+        if pmid_el is None or art_el is None or not pmid_el.text:
+            continue
+        tipi = [
+            (t.text or "").strip()
+            for t in art_el.findall("./PublicationTypeList/PublicationType")
+        ]
+        dettagli[pmid_el.text.strip()] = {
+            "abstract": _parse_abstract(art_el),
+            "pubtypes": [t for t in tipi if t],
+        }
+    return dettagli
+
+
+def arricchisci_con_efetch(articoli):
+    """Sostituisce l'abstract del feed con quello vero e aggiunge i PublicationType.
+    In caso di errore degrada in silenzio: gli articoli restano com'erano e il
+    filtro sui titoli fa da rete di sicurezza."""
+    pmids = [a["pmid"] for a in articoli if a.get("pmid")]
+    if not pmids:
+        return articoli
+
+    dettagli = {}
+    for i in range(0, len(pmids), cfg.EFETCH_BATCH):
+        lotto = pmids[i:i + cfg.EFETCH_BATCH]
+        for tentativo in range(cfg.EFETCH_RETRY + 1):
+            try:
+                dettagli.update(_efetch_lotto(lotto))
+                break
+            except Exception as e:
+                ultimo = tentativo == cfg.EFETCH_RETRY
+                log.warning(
+                    f"efetch lotto {i // cfg.EFETCH_BATCH + 1} "
+                    f"tentativo {tentativo + 1}/{cfg.EFETCH_RETRY + 1} fallito: {e}"
+                    + ("" if ultimo else " - riprovo")
+                )
+                if ultimo:
+                    log.error("efetch non disponibile: proseguo con i dati del feed RSS")
+                else:
+                    time.sleep(2 * (tentativo + 1))
+        time.sleep(0.4)   # NCBI: max 3 richieste/secondo senza chiave API
+
+    recuperati = 0
+    for a in articoli:
+        d = dettagli.get(a["pmid"])
+        if not d:
+            continue
+        a["pubtypes"] = d["pubtypes"]
+        # Si sostituisce solo se efetch porta piu' testo: mai un peggioramento.
+        if len(d["abstract"]) > len(a.get("abstract") or ""):
+            if len(a.get("abstract") or "") < cfg.ABSTRACT_MIN_CHARS <= len(d["abstract"]):
+                recuperati += 1
+            a["abstract"] = d["abstract"]
+
+    log.info(
+        f"efetch: dettagli per {len(dettagli)}/{len(pmids)} PMID, "
+        f"{recuperati} articoli recuperati con abstract prima assente"
+    )
+    return articoli
+
+
+def escluso_per_pubtype(articolo):
+    """(True, tipo) se un PublicationType e' nella lista di esclusione."""
+    for t in articolo.get("pubtypes") or []:
+        if t in cfg.PUBTYPE_ESCLUSI:
+            return True, t
+    return False, ""
+
+
 def raccogli_candidati(giorni=None):
     giorni = giorni or cfg.GIORNI_RICERCA
     log.info(f"Lettura RSS PubMed: ultimi {giorni} giorni su {len(cfg.RIVISTE)} riviste")
@@ -201,12 +306,22 @@ def raccogli_candidati(giorni=None):
         if a["pmid"] not in seen:
             seen.add(a["pmid"])
             unici.append(a)
+    # Abstract veri e PublicationType da E-utilities, prima di filtrare.
+    unici = arricchisci_con_efetch(unici)
+
     candidati = []
-    scartati_titolo = scartati_abstract = 0
+    scartati_pubtype = scartati_titolo = scartati_abstract = 0
     for a in unici:
+        # 1. PublicationType: criterio primario, etichette ufficiali di PubMed.
+        escluso, tipo = escluso_per_pubtype(a)
+        if escluso:
+            scartati_pubtype += 1
+            log.info(f"    [scarto/pubtype {tipo}] {a['titolo'][:80]}")
+            continue
+        # 2. Titolo: rete di sicurezza per i record su cui efetch non ha risposto.
         if escluso_per_titolo(a["titolo"]):
             scartati_titolo += 1
-            log.info(f"    [scarto/tipo] {a['titolo'][:90]}")
+            log.info(f"    [scarto/titolo] {a['titolo'][:90]}")
             continue
         if not a["abstract"] or len(a["abstract"]) < cfg.ABSTRACT_MIN_CHARS:
             scartati_abstract += 1
@@ -215,8 +330,9 @@ def raccogli_candidati(giorni=None):
         candidati.append(a)
 
     log.info(
-        f"Unici {len(unici)} -> scartati {scartati_titolo} per tipo, "
-        f"{scartati_abstract} per abstract -> {len(candidati)} candidati"
+        f"Unici {len(unici)} -> scartati {scartati_pubtype} per pubtype, "
+        f"{scartati_titolo} per titolo, {scartati_abstract} per abstract "
+        f"-> {len(candidati)} candidati"
     )
     return candidati
 
@@ -300,6 +416,7 @@ def filtra_top_articoli(candidati):
         blocchi.append(
             f"PMID: {a['pmid']}\n"
             f"RIVISTA: {a['rivista']} ({a['data']})\n"
+            f"TIPO: {', '.join(a.get('pubtypes') or []) or 'non disponibile'}\n"
             f"TITOLO: {a['titolo']}\n"
             f"ABSTRACT: {a['abstract'][:700]}"
         )
