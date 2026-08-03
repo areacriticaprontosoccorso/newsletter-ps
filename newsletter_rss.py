@@ -221,13 +221,12 @@ def raccogli_candidati(giorni=None):
     return candidati
 
 
-def chiama_claude(prompt, max_tokens=1500, system=None, prefill=None):
-    """prefill: testo con cui far iniziare la risposta (es. "[" per forzare il JSON).
-    Viene riconcatenato in testa al risultato, perche' l'API restituisce solo la
-    continuazione."""
+def chiama_claude(prompt, max_tokens=1500, system=None):
+    # NB: NON passare "temperature" e NON far terminare la conversazione con un
+    # turno "assistant": questo modello rifiuta entrambi con HTTP 400 (verificato
+    # il 03/08/2026). Il formato JSON e' garantito dal prompt e da
+    # _estrai_json_array, che tollera fence markdown e testo di contorno.
     messaggi = [{"role": "user", "content": prompt}]
-    if prefill:
-        messaggi.append({"role": "assistant", "content": prefill})
     corpo = {
         "model":      cfg.ANTHROPIC_MODEL,
         "max_tokens": max_tokens,
@@ -261,7 +260,7 @@ def chiama_claude(prompt, max_tokens=1500, system=None, prefill=None):
             testo = next((b.get("text", "") for b in blocchi if b.get("type") == "text"), "")
             if not testo:
                 raise RuntimeError(f"Nessun blocco di testo nella risposta API: {str(data)[:300]}")
-            return (prefill or "") + testo.strip()
+            return testo.strip()
         except urllib.error.HTTPError as e:
             body = e.read().decode("utf-8")
             ultimo_errore = f"Anthropic API errore {e.code}: {body[:400]}"
@@ -319,7 +318,6 @@ def filtra_top_articoli(candidati):
             prompt,
             max_tokens=cfg.MAX_TOKENS_FILTRO,
             system=cfg.SYSTEM_FILTRO,
-            prefill="[",
         )
         for voce in _estrai_json_array(risposta):
             if len(selezionati) >= cfg.ARTICOLI_FINALI:
@@ -422,7 +420,6 @@ def sintetizza_articolo(art):
             prompt,
             max_tokens=cfg.MAX_TOKENS_SINTESI_SINGOLA,
             system=cfg.SYSTEM_SINTESI,
-            prefill="[",
         )
         voci = _estrai_json_array(risposta)
         esito = _voce_sintesi(voci[0]) if voci else None
@@ -458,7 +455,6 @@ def sintetizza_articoli(articoli):
             prompt,
             max_tokens=cfg.MAX_TOKENS_SINTESI_MULTI,
             system=cfg.SYSTEM_SINTESI,
-            prefill="[",
         )
         for voce in _estrai_json_array(risposta):
             esito = _voce_sintesi(voce)
