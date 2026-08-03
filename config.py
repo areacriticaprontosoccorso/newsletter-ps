@@ -55,13 +55,12 @@ MINIMO_ARTICOLI = 3   # sotto questa soglia scatta il fallback di riempimento
 MAX_PER_TEMA    = 2   # max articoli sullo stesso tema clinico nello stesso digest
 MAX_CANDIDATI_PROMPT = 150  # tetto di candidati inviati al filtro (protegge i token)
 
-# Token e temperatura per tipo di chiamata. Temperature basse: sono compiti di
-# estrazione e formattazione, la varianza non aggiunge valore.
+# Token per tipo di chiamata.
+# NB: NON reintrodurre il parametro "temperature": e' deprecato per questo modello
+# e l'API risponde 400 (verificato sul run del 03/08/2026).
 MAX_TOKENS_FILTRO          = 800
 MAX_TOKENS_SINTESI_MULTI   = 4000
 MAX_TOKENS_SINTESI_SINGOLA = 800
-TEMPERATURE_FILTRO  = 0.2
-TEMPERATURE_SINTESI = 0.3
 
 # Finestra RSS per rivista: PubMed accetta 15/20/50/100. Le riviste ad alto volume
 # vanno alzate, altrimenti 20 item non coprono 7 giorni e si perdono articoli.
@@ -97,9 +96,11 @@ ESCLUSIONI_TITOLO = [
     r"^podcast\b", r"^book review\b",
 ]
 
-# Lunghezza minima dell'abstract. Sotto questa soglia si tratta quasi sempre di
-# lettere, commenti o abstract troncati dal feed.
-ABSTRACT_MIN_CHARS = 200
+# Lunghezza minima dell'abstract. A 200 il run del 03/08 scartava anche ricerca
+# originale (SEP-1 e sepsi, arresto cardiaco pediatrico, blocco PENG ecoguidato):
+# abbassata a 120, ora che il filtro sui titoli intercetta lettere e correzioni.
+# La lunghezza effettiva e' loggata a ogni scarto, per tararla sui dati.
+ABSTRACT_MIN_CHARS = 120
 
 # Schedulazione (trigger esterno via cron-job.org -> workflow_dispatch)
 # Lunedì 13:00 ora di Roma. Il fuso/DST è gestito da cron-job.org, non da GitHub.

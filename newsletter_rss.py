@@ -210,7 +210,7 @@ def raccogli_candidati(giorni=None):
             continue
         if not a["abstract"] or len(a["abstract"]) < cfg.ABSTRACT_MIN_CHARS:
             scartati_abstract += 1
-            log.info(f"    [scarto/abstract] {a['titolo'][:90]}")
+            log.info(f"    [scarto/abstract {len(a['abstract'] or '')}c] {a['titolo'][:90]}")
             continue
         candidati.append(a)
 
@@ -221,7 +221,7 @@ def raccogli_candidati(giorni=None):
     return candidati
 
 
-def chiama_claude(prompt, max_tokens=1500, system=None, temperature=None, prefill=None):
+def chiama_claude(prompt, max_tokens=1500, system=None, prefill=None):
     """prefill: testo con cui far iniziare la risposta (es. "[" per forzare il JSON).
     Viene riconcatenato in testa al risultato, perche' l'API restituisce solo la
     continuazione."""
@@ -238,8 +238,6 @@ def chiama_claude(prompt, max_tokens=1500, system=None, temperature=None, prefil
     }
     if system:
         corpo["system"] = system
-    if temperature is not None:
-        corpo["temperature"] = temperature
     payload = json.dumps(corpo).encode("utf-8")
     # Retry con backoff su rate-limit (429) e errori server transitori (5xx).
     ultimo_errore = None
@@ -321,7 +319,6 @@ def filtra_top_articoli(candidati):
             prompt,
             max_tokens=cfg.MAX_TOKENS_FILTRO,
             system=cfg.SYSTEM_FILTRO,
-            temperature=cfg.TEMPERATURE_FILTRO,
             prefill="[",
         )
         for voce in _estrai_json_array(risposta):
@@ -425,7 +422,6 @@ def sintetizza_articolo(art):
             prompt,
             max_tokens=cfg.MAX_TOKENS_SINTESI_SINGOLA,
             system=cfg.SYSTEM_SINTESI,
-            temperature=cfg.TEMPERATURE_SINTESI,
             prefill="[",
         )
         voci = _estrai_json_array(risposta)
@@ -462,7 +458,6 @@ def sintetizza_articoli(articoli):
             prompt,
             max_tokens=cfg.MAX_TOKENS_SINTESI_MULTI,
             system=cfg.SYSTEM_SINTESI,
-            temperature=cfg.TEMPERATURE_SINTESI,
             prefill="[",
         )
         for voce in _estrai_json_array(risposta):
@@ -685,6 +680,18 @@ def main():
         return False
 
     selezionati = sintetizza_articoli(selezionati)
+
+    # Una newsletter senza sintesi in italiano non va spedita: meglio un run rosso,
+    # che si nota e si indaga, di un digest svuotato che erode la fiducia dei lettori.
+    con_sintesi = [a for a in selezionati if a.get("sintesi_it")]
+    if len(con_sintesi) < cfg.MINIMO_ARTICOLI:
+        log.error(
+            f"Solo {len(con_sintesi)}/{len(selezionati)} articoli hanno una sintesi "
+            f"(minimo {cfg.MINIMO_ARTICOLI}): INVIO ANNULLATO. "
+            "Controllare gli errori API qui sopra."
+        )
+        return False
+    selezionati = con_sintesi
 
     html_body = build_html(selezionati)
 
