@@ -19,6 +19,12 @@ GMAIL_TOKEN        = os.environ.get("GMAIL_TOKEN", "")
 DESTINATARI        = [
     e.strip() for e in os.environ.get("DESTINATARI", "").split(",") if e.strip()
 ]
+
+# Modalita' prova a vuoto: esegue tutta la pipeline (feed, efetch, filtro, sintesi)
+# ma NON invia l'email; scrive l'HTML su file e logga la selezione per esteso.
+# Attivazione: DRY_RUN=1 (accettati anche true/yes/si).
+DRY_RUN      = os.environ.get("DRY_RUN", "").strip().lower() in ("1", "true", "yes", "si")
+DRY_RUN_FILE = "anteprima_digest.html"
 NCBI_TOOL          = "em_weekly_digest_torino"  # User-Agent per i feed PubMed
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -158,8 +164,8 @@ CONTESTO_PS = """CONTESTO DEL LETTORE:
   medica acuta e una quota rilevante di anziani fragili e pluripatologici.
 - Annesse Osservazione Breve Intensiva e Area Critica/shock room.
 - Sono presenti in sede e attivabili h24: neurochirurgia, cardiochirurgia,
-  emodinamica interventistica, chirurgia vascolare, rianimazione, TC,
-  ecografia clinica point-of-care.
+  emodinamica interventistica, chirurgia vascolare, endoscopia digestiva
+  d'urgenza, rianimazione, TC, ecografia clinica point-of-care.
 
 COME USARE QUESTO CONTESTO: essendo un hub completo, la disponibilita' di risorse
 NON e' un criterio utile di esclusione, perche' quasi tutto e' tecnicamente
@@ -358,9 +364,12 @@ LOG_FILE = os.path.join(DIR_BASE, "newsletter.log")
 def valida_config():
     mancanti = []
     if not ANTHROPIC_API_KEY: mancanti.append("ANTHROPIC_API_KEY")
-    if not GMAIL_USER:        mancanti.append("GMAIL_USER")
-    if not GMAIL_TOKEN:       mancanti.append("GMAIL_TOKEN")
-    if not DESTINATARI:       mancanti.append("DESTINATARI")
+    # In dry run non si invia nulla: le credenziali Gmail e i destinatari
+    # non servono, cosi' la prova gira anche in locale senza token.
+    if not DRY_RUN:
+        if not GMAIL_USER:  mancanti.append("GMAIL_USER")
+        if not GMAIL_TOKEN: mancanti.append("GMAIL_TOKEN")
+        if not DESTINATARI: mancanti.append("DESTINATARI")
     if mancanti:
         raise RuntimeError(
             f"Variabili d'ambiente mancanti: {', '.join(mancanti)}.\n"

@@ -425,6 +425,12 @@ def filtra_top_articoli(candidati):
         articoli="\n\n---\n\n".join(blocchi),
     )
     log.info(f"Claude filtra {len(candidati)} candidati -> max {cfg.ARTICOLI_FINALI}")
+    if cfg.DRY_RUN:
+        log.info("--- CANDIDATI INVIATI AL FILTRO ---")
+        for a in candidati:
+            tipi = ", ".join(a.get("pubtypes") or []) or "tipo n/d"
+            log.info(f"    {a['pmid']} [{a['rivista']}] ({tipi}) {a['titolo'][:100]}")
+        log.info("--- FINE CANDIDATI ---")
 
     map_pmid = {a["pmid"]: a for a in candidati}
     selezionati = []
@@ -770,7 +776,10 @@ def main():
     cfg.valida_config()
     wl = numero_settimana()
     log.info(f"=== EM Weekly Digest — settimana {wl['settimana']}/{wl['anno']} ===")
-    log.info(f"=== Destinatari: {len(cfg.DESTINATARI)} (da secret) ===")
+    if cfg.DRY_RUN:
+        log.warning("=== MODALITA' DRY RUN ATTIVA: nessuna email verra' inviata ===")
+    else:
+        log.info(f"=== Destinatari: {len(cfg.DESTINATARI)} (da secret) ===")
 
     candidati = raccogli_candidati(giorni=cfg.GIORNI_RICERCA)
 
@@ -809,6 +818,23 @@ def main():
     html_body = build_html(selezionati)
 
     oggetto = f"EM Weekly Digest — Settimana {wl['settimana']}/{wl['anno']}"
+
+    if cfg.DRY_RUN:
+        with open(cfg.DRY_RUN_FILE, "w", encoding="utf-8") as f:
+            f.write(html_body)
+        log.info("=== DRY RUN: nessuna email inviata ===")
+        log.info(f"Anteprima HTML scritta in {cfg.DRY_RUN_FILE}")
+        log.info("--- SELEZIONE FINALE ---")
+        for i, a in enumerate(selezionati, 1):
+            tipi = ", ".join(a.get("pubtypes") or []) or "tipo n/d"
+            log.info(f"  {i:02d}. [{a['pmid']}] {a['rivista']} - {tipi}")
+            log.info(f"      {a['titolo'][:120]}")
+            log.info(f"      badge: {a.get('tipo') or 'nessuno'}")
+            log.info(f"      rilevanza: {(a.get('rilevanza') or '')[:160]}")
+            log.info(f"      limite: {(a.get('limite') or '')[:160]}")
+        log.info("=== OK (dry run) ===")
+        return True
+
     ok = invia_email(oggetto, html_body)
     log.info("=== OK ===" if ok else "=== FALLITO ===")
     return ok
