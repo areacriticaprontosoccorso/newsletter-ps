@@ -25,6 +25,18 @@ DESTINATARI        = [
 # Attivazione: DRY_RUN=1 (accettati anche true/yes/si).
 DRY_RUN      = os.environ.get("DRY_RUN", "").strip().lower() in ("1", "true", "yes", "si")
 DRY_RUN_FILE = "anteprima_digest.html"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# IMMAGINI DEGLI ARTICOLI
+# ═══════════════════════════════════════════════════════════════════════════════
+# Una scheda PNG per articolo, allegata all'email e utile per la condivisione.
+# Gli abstract in inglese sono esclusi: senza, la scheda resta di altezza leggibile.
+IMMAGINI_ABILITATE = True
+IMG_DIR        = "immagini"
+IMG_LARGHEZZA  = 720   # px CSS della scheda
+IMG_SCALA      = 2     # device scale factor: 2 = testo nitido su schermi retina
+IMG_TIMEOUT_MS = 20000
+IMG_MAX_MB     = 20    # oltre questa soglia gli allegati vengono omessi
 NCBI_TOOL          = "em_weekly_digest_torino"  # User-Agent per i feed PubMed
 
 # ═══════════════════════════════════════════════════════════════════════════════

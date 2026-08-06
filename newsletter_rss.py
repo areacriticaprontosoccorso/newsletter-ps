@@ -11,12 +11,17 @@ import time
 import html
 import logging
 import base64
+import pathlib
+import tempfile
+import shutil
+import os
 import urllib.request
 import urllib.error
 import urllib.parse
 import xml.etree.ElementTree as ET
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.mime.image import MIMEImage
 from datetime import datetime, timedelta, timezone
 
 import config as cfg
@@ -662,6 +667,118 @@ def sintetizza_articoli(articoli):
     return articoli
 
 
+def build_html_scheda(a, indice, wl):
+    """Pagina HTML autonoma con un singolo articolo, pensata per lo screenshot.
+    Esclude l'abstract originale: la scheda resta di altezza leggibile."""
+    meta_tipo = cfg.TIPI_ARTICOLO.get(a.get("tipo") or "")
+    badge_html = (
+        f'<span style="font-family:monospace;font-size:11px;font-weight:700;'
+        f'letter-spacing:1.5px;text-transform:uppercase;color:#ffffff;'
+        f'background:{meta_tipo["colore"]};padding:4px 9px;border-radius:3px;'
+        f'margin-left:12px;">{esc(meta_tipo["label"])}</span>'
+    ) if meta_tipo else ""
+
+    limite_txt = (a.get("limite") or "").strip()
+    limite_html = "" if (not limite_txt or limite_txt == cfg.LIMITE_NON_DESUMIBILE) else f"""
+        <div style="font-family:Georgia,serif;font-size:14px;color:#6f6152;line-height:1.55;
+                    margin:0 0 18px;padding:12px 18px;background:#fbf9f4;
+                    border-left:3px solid #c9bda6;">
+          <span style="font-family:monospace;font-size:10px;letter-spacing:1.5px;
+                       text-transform:uppercase;color:#a08c6b;">Limite</span><br/>
+          {esc(limite_txt)}
+        </div>"""
+
+    rilevanza_html = (
+        f'<br/><br/><strong style="color:{cfg.COLOR_ACCENT};">{esc(a["rilevanza"])}</strong>'
+        if a.get("rilevanza") else ""
+    )
+    sintesi_html = f"""
+        <div style="background:#f7f4ef;border-left:3px solid {cfg.COLOR_ACCENT};
+                    padding:16px 20px;font-family:Georgia,serif;font-size:15.5px;
+                    color:#2a2a2a;line-height:1.65;margin-bottom:18px;">
+          {esc(a['sintesi_it'])}{rilevanza_html}
+        </div>""" if a.get("sintesi_it") else ""
+
+    doi_txt = f' &nbsp;&middot;&nbsp; DOI {esc(a["doi"])}' if a.get("doi") else ""
+
+    return f"""<!DOCTYPE html>
+<html lang="it"><head><meta charset="UTF-8"></head>
+<body style="margin:0;padding:0;background:#ffffff;width:{cfg.IMG_LARGHEZZA}px;">
+  <div style="background:{cfg.COLOR_ACCENT};height:5px;"></div>
+  <div style="background:{cfg.COLOR_DARK};padding:16px 34px;">
+    <div style="font-family:monospace;font-size:10px;color:#8a8a8a;letter-spacing:3px;
+                text-transform:uppercase;">{esc(cfg.NOME_SERVIZIO)}</div>
+    <div style="font-family:monospace;font-size:11px;color:#cfcfcf;letter-spacing:1px;
+                margin-top:6px;">
+      {esc(cfg.NOME_NEWSLETTER)} &middot; Settimana {esc(wl['settimana'])}/{esc(wl['anno'])}
+    </div>
+  </div>
+  <div style="padding:26px 34px 30px;">
+    <div style="margin-bottom:14px;">
+      <span style="font-family:monospace;font-size:15px;color:{cfg.COLOR_ACCENT};
+                   font-weight:700;">{str(indice).zfill(2)}</span>
+      <span style="font-family:monospace;font-size:12px;color:#aaa;margin-left:10px;">{esc(a['rivista'])} &middot; {esc(a['data'])}</span>{badge_html}
+    </div>
+    <div style="font-family:Georgia,serif;font-size:23px;font-weight:700;color:#1a1a1a;
+                line-height:1.32;margin-bottom:8px;">{esc(a['titolo'])}</div>
+    <div style="font-family:monospace;font-size:12.5px;color:#999;font-style:italic;
+                margin-bottom:20px;">{esc(a['autori'])}</div>
+    {sintesi_html}
+    {limite_html}
+    <div style="font-family:monospace;font-size:11px;color:#0a4d68;border-top:1px solid #e8e3db;
+                padding-top:12px;">PubMed {esc(a['pmid'])}{doi_txt}</div>
+  </div>
+</body></html>"""
+
+
+def genera_immagini(articoli):
+    """Una scheda PNG per articolo, con Chromium headless via Playwright.
+    Non e' mai bloccante: se qualcosa fallisce si prosegue senza immagini."""
+    if not cfg.IMMAGINI_ABILITATE:
+        return []
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        log.error("Playwright non installato: nessuna immagine generata")
+        return []
+
+    wl = numero_settimana()
+    os.makedirs(cfg.IMG_DIR, exist_ok=True)
+    tmp = tempfile.mkdtemp()
+    percorsi = []
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(args=["--no-sandbox"])
+            pagina = browser.new_page(
+                viewport={"width": cfg.IMG_LARGHEZZA, "height": 1200},
+                device_scale_factor=cfg.IMG_SCALA,
+            )
+            for i, a in enumerate(articoli, 1):
+                f = os.path.join(tmp, f"scheda{i}.html")
+                with open(f, "w", encoding="utf-8") as fh:
+                    fh.write(build_html_scheda(a, i, wl))
+                pagina.goto(pathlib.Path(f).as_uri(),
+                            wait_until="networkidle", timeout=cfg.IMG_TIMEOUT_MS)
+                nome = f"digest-s{str(wl['settimana']).zfill(2)}-{str(i).zfill(2)}.png"
+                dest = os.path.join(cfg.IMG_DIR, nome)
+                pagina.screenshot(path=dest, full_page=True)
+                percorsi.append(dest)
+                kb = os.path.getsize(dest) // 1024
+                log.info(f"    immagine {i}/{len(articoli)}: {nome} ({kb} KB)")
+            browser.close()
+    except Exception as e:
+        log.error(f"Generazione immagini interrotta: {e}")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    tot_mb = sum(os.path.getsize(p) for p in percorsi) / 1e6
+    log.info(f"Immagini generate: {len(percorsi)}/{len(articoli)} ({tot_mb:.1f} MB)")
+    if tot_mb > cfg.IMG_MAX_MB:
+        log.warning(f"Allegati oltre {cfg.IMG_MAX_MB} MB: non verranno allegati")
+        return []
+    return percorsi
+
+
 def build_html(articoli):
     wl = numero_settimana()
     arts_html = ""
@@ -794,7 +911,7 @@ def build_html(articoli):
 </table></body></html>"""
 
 
-def invia_email(oggetto, html_body):
+def invia_email(oggetto, html_body, allegati=None):
     from google.oauth2.credentials import Credentials
     from googleapiclient.discovery import build
 
@@ -813,7 +930,8 @@ def invia_email(oggetto, html_body):
         scopes=token_data['scopes'],
     )
 
-    msg = MIMEMultipart("alternative")
+    # "mixed" contiene l'alternative (testo + HTML) piu' gli allegati PNG.
+    msg = MIMEMultipart("mixed")
     msg["Subject"] = oggetto
     msg["From"]    = f"EM Weekly Digest <{cfg.GMAIL_USER}>"
     # Destinatari in Bcc: nessuno vede gli indirizzi degli altri.
@@ -822,14 +940,29 @@ def invia_email(oggetto, html_body):
     msg["To"]      = cfg.GMAIL_USER
     msg["Bcc"]     = ", ".join(cfg.DESTINATARI)
 
-    msg.attach(MIMEText(f"EM Weekly Digest — {oggetto}\nApri in HTML.", "plain", "utf-8"))
-    msg.attach(MIMEText(html_body, "html", "utf-8"))
+    corpo = MIMEMultipart("alternative")
+    corpo.attach(MIMEText(f"EM Weekly Digest — {oggetto}\nApri in HTML.", "plain", "utf-8"))
+    corpo.attach(MIMEText(html_body, "html", "utf-8"))
+    msg.attach(corpo)
+
+    for percorso in allegati or []:
+        try:
+            with open(percorso, "rb") as f:
+                img = MIMEImage(f.read(), _subtype="png")
+            img.add_header("Content-Disposition", "attachment",
+                           filename=os.path.basename(percorso))
+            msg.attach(img)
+        except Exception as e:
+            log.warning(f"Allegato saltato ({percorso}): {e}")
 
     try:
         service = build('gmail', 'v1', credentials=creds)
         raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
         service.users().messages().send(userId='me', body={'raw': raw}).execute()
-        log.info(f"Email inviata a {len(cfg.DESTINATARI)} destinatari (Bcc)")
+        log.info(
+            f"Email inviata a {len(cfg.DESTINATARI)} destinatari (Bcc), "
+            f"{len(allegati or [])} immagini allegate"
+        )
         return True
     except Exception as e:
         log.error(f"Invio fallito: {e}")
@@ -899,7 +1032,7 @@ def main():
         log.info("=== OK (dry run) ===")
         return True
 
-    ok = invia_email(oggetto, html_body)
+    ok = invia_email(oggetto, html_body, allegati=immagini)
     log.info("=== OK ===" if ok else "=== FALLITO ===")
     return ok
 
