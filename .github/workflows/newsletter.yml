@@ -43,6 +43,8 @@ jobs:
             google-auth-oauthlib==1.4.0 \
             google-auth-httplib2==0.4.0 \
             google-api-python-client==2.198.0
+          pip install playwright==1.49.0
+          playwright install --with-deps chromium
 
       - name: Esegui newsletter
         env:
@@ -64,5 +66,6 @@ jobs:
           path: |
             anteprima_digest.html
             newsletter.log
+            immagini/
           if-no-files-found: warn
           retention-days: 14
