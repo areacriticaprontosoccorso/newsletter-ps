@@ -130,6 +130,14 @@ ESCLUSIONI_TITOLO = [
 # La lunghezza effettiva è loggata a ogni scarto, per tararla sui dati.
 ABSTRACT_MIN_CHARS = 120
 
+# Troncatura degli abstract passati al modello.
+# Al FILTRO basta l'inizio: conta il quesito e il disegno, e la lista e' lunga.
+# Alla SINTESI serve tutto: con gli abstract completi di efetch, 2000 caratteri
+# mutilavano i trial maggiori (ICECAP e' stato sintetizzato su un testo troncato,
+# e il modello lo ha segnalato come limite). 6000 copre ogni abstract PubMed.
+ABSTRACT_MAX_FILTRO  = 700
+ABSTRACT_MAX_SINTESI = 6000
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # E-UTILITIES efetch — abstract veri e tipi di pubblicazione
 # ═══════════════════════════════════════════════════════════════════════════════

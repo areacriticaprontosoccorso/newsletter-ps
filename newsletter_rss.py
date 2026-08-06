@@ -463,7 +463,7 @@ def filtra_top_articoli(candidati):
             f"AREA: {cfg.ETICHETTA_GRUPPO.get(a.get('gruppo'), 'specialistica')}\n"
             f"TIPO: {', '.join(a.get('pubtypes') or []) or 'non disponibile'}\n"
             f"TITOLO: {a['titolo']}\n"
-            f"ABSTRACT: {a['abstract'][:700]}"
+            f"ABSTRACT: {a['abstract'][:cfg.ABSTRACT_MAX_FILTRO]}"
         )
     prompt = cfg.PROMPT_FILTRO_RILEVANZA.format(
         n=cfg.ARTICOLI_RICHIESTI,
@@ -603,7 +603,8 @@ def sintetizza_articolo(art):
         autori=art["autori"],
         rivista=art["rivista"],
         data=art["data"],
-        abstract=art["abstract"][:2000] if art["abstract"] else "(non disponibile)",
+        abstract=(art["abstract"][:cfg.ABSTRACT_MAX_SINTESI]
+                  if art["abstract"] else "(non disponibile)"),
     )
     try:
         risposta = chiama_claude(
@@ -634,7 +635,7 @@ def sintetizza_articoli(articoli):
             f"Titolo: {a['titolo']}\n"
             f"Autori: {a['autori']}\n"
             f"Rivista: {a['rivista']} ({a['data']})\n"
-            f"Abstract: {a['abstract'][:2000] if a['abstract'] else '(non disponibile)'}"
+            f"Abstract: {a['abstract'][:cfg.ABSTRACT_MAX_SINTESI] if a['abstract'] else '(non disponibile)'}"
         )
     prompt = cfg.PROMPT_SINTESI_MULTI.format(articoli="\n\n---\n\n".join(blocchi))
     log.info(f"Sintesi unica di {len(articoli)} articoli con Claude...")
@@ -1016,11 +1017,15 @@ def main():
 
     oggetto = f"EM Weekly Digest — Settimana {wl['settimana']}/{wl['anno']}"
 
+    log.info("Generazione schede PNG...")
+    immagini = genera_immagini(selezionati)
+
     if cfg.DRY_RUN:
         with open(cfg.DRY_RUN_FILE, "w", encoding="utf-8") as f:
             f.write(html_body)
         log.info("=== DRY RUN: nessuna email inviata ===")
         log.info(f"Anteprima HTML scritta in {cfg.DRY_RUN_FILE}")
+        log.info(f"Schede PNG in {cfg.IMG_DIR}/: {len(immagini)}")
         log.info("--- SELEZIONE FINALE ---")
         for i, a in enumerate(selezionati, 1):
             tipi = ", ".join(a.get("pubtypes") or []) or "tipo n/d"
