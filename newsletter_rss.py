@@ -750,8 +750,11 @@ def genera_immagini(articoli):
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(args=["--no-sandbox"])
+            # Viewport basso di partenza: lo screenshot full_page prende il
+            # massimo fra contenuto e viewport, quindi un viewport alto
+            # aggiungerebbe spazio bianco in fondo a ogni scheda.
             pagina = browser.new_page(
-                viewport={"width": cfg.IMG_LARGHEZZA, "height": 1200},
+                viewport={"width": cfg.IMG_LARGHEZZA, "height": 200},
                 device_scale_factor=cfg.IMG_SCALA,
             )
             for i, a in enumerate(articoli, 1):
@@ -760,12 +763,23 @@ def genera_immagini(articoli):
                     fh.write(build_html_scheda(a, i, wl))
                 pagina.goto(pathlib.Path(f).as_uri(),
                             wait_until="networkidle", timeout=cfg.IMG_TIMEOUT_MS)
+                # Si misura l'altezza reale e vi si adatta il viewport: la scheda
+                # risulta ritagliata esattamente sul contenuto.
+                altezza = max(int(pagina.evaluate(
+                    "Math.ceil(document.documentElement.scrollHeight)"
+                )), 200)
+                pagina.set_viewport_size(
+                    {"width": cfg.IMG_LARGHEZZA, "height": altezza}
+                )
                 nome = f"digest-s{str(wl['settimana']).zfill(2)}-{str(i).zfill(2)}.png"
                 dest = os.path.join(cfg.IMG_DIR, nome)
                 pagina.screenshot(path=dest, full_page=True)
                 percorsi.append(dest)
                 kb = os.path.getsize(dest) // 1024
-                log.info(f"    immagine {i}/{len(articoli)}: {nome} ({kb} KB)")
+                log.info(
+                    f"    immagine {i}/{len(articoli)}: {nome} "
+                    f"({cfg.IMG_LARGHEZZA}x{altezza} CSS, {kb} KB)"
+                )
             browser.close()
     except Exception as e:
         log.error(f"Generazione immagini interrotta: {e}")
