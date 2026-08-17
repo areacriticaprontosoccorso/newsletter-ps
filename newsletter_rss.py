@@ -11,6 +11,8 @@ import time
 import html
 import logging
 import base64
+from zoneinfo import ZoneInfo
+import uuid
 import pathlib
 import tempfile
 import shutil
@@ -22,7 +24,7 @@ import xml.etree.ElementTree as ET
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, time as dt_time
 
 import config as cfg
 
@@ -926,6 +928,163 @@ def build_html(articoli):
 </table></body></html>"""
 
 
+def _multipart(campi, file_campo=None, file_path=None):
+    """Costruisce un corpo multipart/form-data senza dipendenze esterne."""
+    conf = uuid.uuid4().hex
+    parti = []
+    for k, v in campi.items():
+        parti.append(
+            f'--{conf}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'
+            .encode("utf-8")
+        )
+    if file_campo and file_path:
+        with open(file_path, "rb") as f:
+            dati = f.read()
+        nome = os.path.basename(file_path)
+        parti.append(
+            f'--{conf}\r\nContent-Disposition: form-data; name="{file_campo}"; '
+            f'filename="{nome}"\r\nContent-Type: image/png\r\n\r\n'.encode("utf-8")
+        )
+        parti.append(dati)
+        parti.append(b"\r\n")
+    parti.append(f"--{conf}--\r\n".encode("utf-8"))
+    return b"".join(parti), f"multipart/form-data; boundary={conf}"
+
+
+def _fb_post(percorso_api, campi, file_path=None):
+    url = f"https://graph.facebook.com/{cfg.FB_API_VERSION}/{percorso_api}"
+    campi = dict(campi, access_token=cfg.FB_PAGE_TOKEN)
+    if file_path:
+        corpo, ctype = _multipart(campi, "source", file_path)
+    else:
+        corpo = urllib.parse.urlencode(campi).encode("utf-8")
+        ctype = "application/x-www-form-urlencoded"
+    req = urllib.request.Request(url, data=corpo,
+                                 headers={"Content-Type": ctype}, method="POST")
+    with urllib.request.urlopen(req, timeout=cfg.FB_TIMEOUT) as r:
+        return json.loads(r.read().decode("utf-8"))
+
+
+def testo_post_facebook(articoli, wl):
+    """Didascalia del post: intestazione, elenco numerato, chiusura."""
+    righe = [cfg.FB_INTESTAZIONE.format(
+        settimana=wl["settimana"], anno=wl["anno"], n=len(articoli))]
+    for i, a in enumerate(articoli, 1):
+        meta = cfg.TIPI_ARTICOLO.get(a.get("tipo") or "")
+        etichetta = f" [{meta['label'].upper()}]" if meta else ""
+        righe.append(
+            f"{str(i).zfill(2)}{etichetta} {a['titolo']}\n"
+            f"{a['rivista']} — pubmed.ncbi.nlm.nih.gov/{a['pmid']}"
+        )
+    righe.append(cfg.FB_CHIUSURA)
+    return "\n\n".join(righe)
+
+
+def prossimi_slot_feriali(n):
+    """Le prossime n date feriali all'ora configurata, fuso di Roma.
+    Salta gli slot gia' passati o troppo vicini: l'API rifiuta orari a meno di
+    10 minuti da adesso."""
+    tz = ZoneInfo(cfg.FB_FUSO)
+    adesso = datetime.now(tz)
+    slot, giorno = [], adesso.date()
+    while len(slot) < n:
+        quando = datetime.combine(giorno, dt_time(cfg.FB_ORA, cfg.FB_MINUTO), tzinfo=tz)
+        if giorno.weekday() in cfg.FB_GIORNI_FERIALI and \
+           quando > adesso + timedelta(minutes=15):
+            slot.append(quando)
+        giorno += timedelta(days=1)
+    return slot
+
+
+def testo_post_articolo(a, indice, totale, wl):
+    meta = cfg.TIPI_ARTICOLO.get(a.get("tipo") or "")
+    limite = (a.get("limite") or "").strip()
+    return cfg.POST_GIORNALIERO.format(
+        settimana=wl["settimana"], anno=wl["anno"], i=indice, tot=totale,
+        titolo=a["titolo"], rivista=a["rivista"], data=a["data"],
+        badge=f" · {meta['label'].upper()}" if meta else "",
+        sintesi=a.get("sintesi_it") or "",
+        rilevanza=a.get("rilevanza") or "",
+        limite=f"\n\nLimite: {limite}" if limite and limite != cfg.LIMITE_NON_DESUMIBILE else "",
+        pmid=a["pmid"],
+    )
+
+
+def pubblica_facebook_programmata(immagini, articoli, wl):
+    """Un post per articolo, uno per giorno feriale, tutti creati adesso e
+    programmati. A pubblicarli e' Facebook."""
+    coppie = list(zip(immagini, articoli))
+    slot = prossimi_slot_feriali(len(coppie))
+    ok = 0
+    for k, ((percorso, art), quando) in enumerate(zip(coppie, slot), 1):
+        try:
+            # La foto si carica non pubblicata, poi il post di feed la allega
+            # e viene programmato: e' il percorso documentato per lo scheduling.
+            r = _fb_post(f"{cfg.FB_PAGE_ID}/photos", {"published": "false"},
+                         file_path=percorso)
+            campi = {
+                "message": testo_post_articolo(art, k, len(coppie), wl),
+                "attached_media[0]": json.dumps({"media_fbid": r["id"]}),
+                "published": "false",
+                "scheduled_publish_time": str(int(quando.timestamp())),
+            }
+            p = _fb_post(f"{cfg.FB_PAGE_ID}/feed", campi)
+            log.info(
+                f"    post {k}/{len(coppie)} programmato per "
+                f"{quando.strftime('%a %d/%m %H:%M')} -> {p.get('id')}"
+            )
+            ok += 1
+        except urllib.error.HTTPError as e:
+            log.error(f"    post {k} HTTP {e.code}: "
+                      f"{e.read().decode('utf-8', 'replace')[:300]}")
+        except Exception as e:
+            log.error(f"    post {k} fallito: {e}")
+
+    log.info(f"Facebook: {ok}/{len(coppie)} post programmati")
+    if ok and slot[-1].date() - slot[0].date() > timedelta(days=6):
+        log.warning(
+            "Gli slot superano i 6 giorni: l'ultimo post cadrebbe dopo il digest "
+            "successivo. Valutare di anticipare FB_ORA o la corsa settimanale."
+        )
+    return ok > 0
+
+
+def pubblica_facebook(immagini, articoli, wl):
+    """Un unico post multi-foto sulla Pagina. Mai bloccante."""
+    if not cfg.FB_ABILITATO:
+        return False
+    if not (cfg.FB_PAGE_ID and cfg.FB_PAGE_TOKEN):
+        log.warning("Facebook non configurato (FB_PAGE_ID/FB_PAGE_TOKEN): salto")
+        return False
+    if not immagini:
+        log.warning("Nessuna immagine da pubblicare su Facebook")
+        return False
+
+    if cfg.FB_UN_POST_AL_GIORNO:
+        return pubblica_facebook_programmata(immagini, articoli, wl)
+
+    try:
+        # 1. Le foto si caricano NON pubblicate: restituiscono un id da allegare.
+        media = []
+        for p in immagini:
+            r = _fb_post(f"{cfg.FB_PAGE_ID}/photos", {"published": "false"}, file_path=p)
+            media.append(r["id"])
+            log.info(f"    foto caricata: {os.path.basename(p)} -> {r['id']}")
+
+        # 2. Un solo post di feed che le raccoglie tutte.
+        campi = {"message": testo_post_facebook(articoli, wl)}
+        for k, mid in enumerate(media):
+            campi[f"attached_media[{k}]"] = json.dumps({"media_fbid": mid})
+        r = _fb_post(f"{cfg.FB_PAGE_ID}/feed", campi)
+        log.info(f"Post Facebook pubblicato: {r.get('id')} ({len(media)} foto)")
+        return True
+    except urllib.error.HTTPError as e:
+        log.error(f"Facebook HTTP {e.code}: {e.read().decode('utf-8', 'replace')[:400]}")
+    except Exception as e:
+        log.error(f"Pubblicazione Facebook fallita: {e}")
+    return False
+
+
 def invia_email(oggetto, html_body, allegati=None):
     from google.oauth2.credentials import Credentials
     from googleapiclient.discovery import build
@@ -1040,6 +1199,11 @@ def main():
         log.info("=== DRY RUN: nessuna email inviata ===")
         log.info(f"Anteprima HTML scritta in {cfg.DRY_RUN_FILE}")
         log.info(f"Schede PNG in {cfg.IMG_DIR}/: {len(immagini)}")
+        # In prova a vuoto il post non parte: si salva solo la didascalia,
+        # cosi' la si puo' rileggere (e usare per un post manuale nel gruppo).
+        with open("post_facebook.txt", "w", encoding="utf-8") as f:
+            f.write(testo_post_facebook(selezionati, wl))
+        log.info("Didascalia Facebook scritta in post_facebook.txt")
         log.info("--- SELEZIONE FINALE ---")
         for i, a in enumerate(selezionati, 1):
             tipi = ", ".join(a.get("pubtypes") or []) or "tipo n/d"
@@ -1052,6 +1216,9 @@ def main():
         return True
 
     ok = invia_email(oggetto, html_body, allegati=immagini)
+
+    # Facebook dopo l'email: un errore qui non deve impedire l'invio del digest.
+    pubblica_facebook(immagini, selezionati, wl)
     log.info("=== OK ===" if ok else "=== FALLITO ===")
     return ok
 

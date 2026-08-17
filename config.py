@@ -37,6 +37,56 @@ IMG_LARGHEZZA  = 720   # px CSS della scheda
 IMG_SCALA      = 2     # device scale factor: 2 = testo nitido su schermi retina
 IMG_TIMEOUT_MS = 20000
 IMG_MAX_MB     = 20    # oltre questa soglia gli allegati vengono omessi
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PUBBLICAZIONE SU PAGINA FACEBOOK
+# ═══════════════════════════════════════════════════════════════════════════════
+# Le schede PNG vengono pubblicate come UNICO post multi-foto sulla Pagina.
+# NB: nei GRUPPI non è più possibile pubblicare via API — Meta ha rimosso le
+# Groups API il 22/04/2024. Dalla Pagina il post si condivide nel gruppo a mano.
+# Permessi necessari sul token di Pagina: pages_manage_posts, pages_read_engagement.
+FB_ABILITATO   = True
+FB_API_VERSION = "v21.0"
+FB_PAGE_ID     = os.environ.get("FB_PAGE_ID", "")
+FB_PAGE_TOKEN  = os.environ.get("FB_PAGE_TOKEN", "")
+FB_TIMEOUT     = 60
+
+# Pubblicazione distribuita: un post al giorno nei giorni feriali, uno per articolo.
+# La corsa del lunedì crea tutti e cinque i post già programmati; a pubblicarli
+# è poi Facebook. Vincolo API: l'orario deve essere almeno 10 minuti nel futuro.
+FB_UN_POST_AL_GIORNO = True
+FB_FUSO              = "Europe/Rome"
+FB_ORA               = 18   # ora di pubblicazione (0-23), fuso di Roma
+FB_MINUTO            = 30
+FB_GIORNI_FERIALI    = {0, 1, 2, 3, 4}   # lunedì=0 ... venerdì=4
+
+# Didascalia del singolo post giornaliero.
+POST_GIORNALIERO = """EM Weekly Digest — Settimana {settimana}/{anno} · articolo {i} di {tot}
+
+{titolo}
+{rivista}, {data}{badge}
+
+{sintesi}
+
+{rilevanza}{limite}
+
+Fonte: pubmed.ncbi.nlm.nih.gov/{pmid}
+
+Sintesi generata con supporto di intelligenza artificiale: verificare prima
+dell'applicazione clinica.
+
+#MedicinaDUrgenza #ProntoSoccorso #AreaCritica #EBM"""
+
+# Intestazione del post. {settimana}, {anno} e {n} vengono sostituiti.
+FB_INTESTAZIONE = """EM Weekly Digest — Settimana {settimana}/{anno}
+
+I {n} articoli più rilevanti per la pratica in Pronto Soccorso e Area Critica,
+selezionati dalla letteratura internazionale della settimana."""
+
+FB_CHIUSURA = """Le sintesi sono generate con supporto di intelligenza artificiale
+e vanno verificate prima dell'applicazione clinica.
+
+#MedicinaDUrgenza #ProntoSoccorso #AreaCritica #EBM"""
 NCBI_TOOL          = "em_weekly_digest_torino"  # User-Agent per i feed PubMed
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -131,9 +181,9 @@ ESCLUSIONI_TITOLO = [
 ABSTRACT_MIN_CHARS = 120
 
 # Troncatura degli abstract passati al modello.
-# Al FILTRO basta l'inizio: conta il quesito e il disegno, e la lista e' lunga.
+# Al FILTRO basta l'inizio: conta il quesito e il disegno, e la lista è lunga.
 # Alla SINTESI serve tutto: con gli abstract completi di efetch, 2000 caratteri
-# mutilavano i trial maggiori (ICECAP e' stato sintetizzato su un testo troncato,
+# mutilavano i trial maggiori (ICECAP è stato sintetizzato su un testo troncato,
 # e il modello lo ha segnalato come limite). 6000 copre ogni abstract PubMed.
 ABSTRACT_MAX_FILTRO  = 700
 ABSTRACT_MAX_SINTESI = 6000
@@ -165,8 +215,8 @@ PUBTYPE_ESCLUSI = {
 # Tipi da segnalare al filtro come indizio di qualità metodologica.
 # PublicationType che identificano una sintesi di letteratura senza dati primari:
 # su questi il badge "revisione" viene imposto in codice, senza chiederlo al modello.
-# "Meta-Analysis" e' escluso di proposito: una metanalisi produce stime quantitative
-# proprie e puo' legittimamente essere "cambia-pratica".
+# "Meta-Analysis" è escluso di proposito: una metanalisi produce stime quantitative
+# proprie e può legittimamente essere "cambia-pratica".
 PUBTYPE_REVISIONE = {
     "Review", "Systematic Review", "Scoping Review", "Practice Guideline",
     "Guideline", "Consensus Development Conference",
