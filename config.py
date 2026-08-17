@@ -26,6 +26,12 @@ DESTINATARI        = [
 DRY_RUN      = os.environ.get("DRY_RUN", "").strip().lower() in ("1", "true", "yes", "si")
 DRY_RUN_FILE = "anteprima_digest.html"
 
+# Modalità solo Facebook: esegue tutta la pipeline e pubblica i post programmati,
+# ma NON invia l'email. Utile per ripubblicare o per lanciare la sola parte social
+# senza far arrivare un secondo digest ai destinatari.
+# Ha effetto solo se DRY_RUN non è attivo: la prova a vuoto non pubblica mai nulla.
+SOLO_FACEBOOK = os.environ.get("SOLO_FACEBOOK", "").strip().lower() in ("1", "true", "yes", "si")
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # IMMAGINI DEGLI ARTICOLI
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -56,8 +62,8 @@ FB_TIMEOUT     = 60
 # è poi Facebook. Vincolo API: l'orario deve essere almeno 10 minuti nel futuro.
 FB_UN_POST_AL_GIORNO = True
 FB_FUSO              = "Europe/Rome"
-FB_ORA               = 18   # ora di pubblicazione (0-23), fuso di Roma
-FB_MINUTO            = 30
+FB_ORA               = 16   # ora di pubblicazione (0-23), fuso di Roma
+FB_MINUTO            = 0
 FB_GIORNI_FERIALI    = {0, 1, 2, 3, 4}   # lunedì=0 ... venerdì=4
 
 # Didascalia del singolo post giornaliero.
@@ -501,7 +507,7 @@ def valida_config():
     if not ANTHROPIC_API_KEY: mancanti.append("ANTHROPIC_API_KEY")
     # In dry run non si invia nulla: le credenziali Gmail e i destinatari
     # non servono, così la prova gira anche in locale senza token.
-    if not DRY_RUN:
+    if not DRY_RUN and not SOLO_FACEBOOK:
         if not GMAIL_USER:  mancanti.append("GMAIL_USER")
         if not GMAIL_TOKEN: mancanti.append("GMAIL_TOKEN")
         if not DESTINATARI: mancanti.append("DESTINATARI")

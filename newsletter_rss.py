@@ -1148,7 +1148,9 @@ def main():
     wl = numero_settimana()
     log.info(f"=== EM Weekly Digest — settimana {wl['settimana']}/{wl['anno']} ===")
     if cfg.DRY_RUN:
-        log.warning("=== MODALITA' DRY RUN ATTIVA: nessuna email verra' inviata ===")
+        log.warning("=== MODALITA' DRY RUN ATTIVA: nessun invio, nessuna pubblicazione ===")
+    elif cfg.SOLO_FACEBOOK:
+        log.warning("=== MODALITA' SOLO FACEBOOK: si pubblica su Facebook, niente email ===")
     else:
         log.info(f"=== Destinatari: {len(cfg.DESTINATARI)} (da secret) ===")
 
@@ -1229,7 +1231,11 @@ def main():
         log.info("=== OK (dry run) ===")
         return True
 
-    ok = invia_email(oggetto, html_body, allegati=immagini)
+    if cfg.SOLO_FACEBOOK:
+        log.warning("=== MODALITA' SOLO FACEBOOK: nessuna email inviata ===")
+        ok = True
+    else:
+        ok = invia_email(oggetto, html_body, allegati=immagini)
 
     # Facebook dopo l'email: un errore qui non deve impedire l'invio del digest.
     pubblica_facebook(immagini, selezionati, wl)
