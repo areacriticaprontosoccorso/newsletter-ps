@@ -52,6 +52,8 @@ jobs:
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_TOKEN: ${{ secrets.GMAIL_TOKEN }}
           DESTINATARI: ${{ secrets.DESTINATARI }}
+          FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
+          FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
           # Vuoto quando il workflow parte da cron-job.org: l'invio resta il default.
           DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
         run: python newsletter_rss.py
@@ -67,5 +69,6 @@ jobs:
             anteprima_digest.html
             newsletter.log
             immagini/
+            post_facebook.txt
           if-no-files-found: warn
           retention-days: 14
