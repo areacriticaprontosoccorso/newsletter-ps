@@ -15,6 +15,10 @@ on:
         description: "Prova a vuoto: esegue tutto ma NON invia l'email"
         type: boolean
         default: false
+      solo_facebook:
+        description: "Solo Facebook: pubblica i post ma NON invia l'email"
+        type: boolean
+        default: false
 
 # Evita doppi invii se cron-job.org spara due trigger ravvicinati:
 # il secondo run attende (non cancella) ma non gira in parallelo.
@@ -56,6 +60,7 @@ jobs:
           FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
           # Vuoto quando il workflow parte da cron-job.org: l'invio resta il default.
           DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+          SOLO_FACEBOOK: ${{ inputs.solo_facebook && '1' || '' }}
         run: python newsletter_rss.py
 
       # Caricato anche quando lo step precedente fallisce: il log e' proprio
