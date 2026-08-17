@@ -1201,9 +1201,23 @@ def main():
         log.info(f"Schede PNG in {cfg.IMG_DIR}/: {len(immagini)}")
         # In prova a vuoto il post non parte: si salva solo la didascalia,
         # cosi' la si puo' rileggere (e usare per un post manuale nel gruppo).
+        # L'anteprima deve mostrare esattamente cio' che verra' pubblicato: con
+        # un post al giorno le didascalie sono cinque, una per articolo, non
+        # l'elenco unico.
         with open("post_facebook.txt", "w", encoding="utf-8") as f:
-            f.write(testo_post_facebook(selezionati, wl))
-        log.info("Didascalia Facebook scritta in post_facebook.txt")
+            if cfg.FB_UN_POST_AL_GIORNO:
+                slot = prossimi_slot_feriali(len(selezionati))
+                for k, (a, quando) in enumerate(zip(selezionati, slot), 1):
+                    f.write(f"{'=' * 70}\nPOST {k}/{len(selezionati)} — "
+                            f"programmato per {quando.strftime('%A %d/%m alle %H:%M')}\n"
+                            f"immagine: digest-s{str(wl['settimana']).zfill(2)}-"
+                            f"{str(k).zfill(2)}.png\n{'=' * 70}\n\n")
+                    f.write(testo_post_articolo(a, k, len(selezionati), wl))
+                    f.write("\n\n")
+                log.info(f"Didascalie Facebook ({len(selezionati)} post) in post_facebook.txt")
+            else:
+                f.write(testo_post_facebook(selezionati, wl))
+                log.info("Didascalia Facebook (post unico) in post_facebook.txt")
         log.info("--- SELEZIONE FINALE ---")
         for i, a in enumerate(selezionati, 1):
             tipi = ", ".join(a.get("pubtypes") or []) or "tipo n/d"
