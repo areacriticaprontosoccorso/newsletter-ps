@@ -172,6 +172,7 @@ def fetch_feed(rivista):
             "autori":     autori,
             "rivista":    rivista["nome"],
             "gruppo":     rivista.get("gruppo", "spec"),
+            "fascia":     rivista.get("fascia", cfg.FASCIA_DEFAULT),
             "data":       pubdate.strftime("%Y %b %d") if pubdate else "",
             "pubdate_dt": pubdate,
             "doi":        doi,
@@ -413,12 +414,27 @@ def componi_digest(graduatoria):
     def prioritario(a):
         return a.get("gruppo") in cfg.GRUPPI_PRIORITARI
 
+    def fascia(a):
+        return a.get("fascia", cfg.FASCIA_DEFAULT)
+
     mancanti = cfg.MIN_EM_GEN - sum(1 for a in scelti if prioritario(a))
     while mancanti > 0:
-        # candidato in entrata: il primo em/gen in panchina (ordine = rilevanza)
-        entra = next((a for a in panchina if prioritario(a)), None)
-        # candidato in uscita: lo specialistico peggio piazzato fra i scelti
-        esce = next((a for a in reversed(scelti) if not prioritario(a)), None)
+        # Lo scambio e' imposto dalla quota: la graduatoria del modello va comunque
+        # violata. A parita' di vincolo si sceglie allora la coppia che alza il peso
+        # editoriale del digest: entra la fascia piu' alta, esce la piu' bassa.
+        # La posizione in graduatoria resta il criterio di spareggio fra pari fascia.
+        candidati_entrata = [a for a in panchina if prioritario(a)]
+        entra = max(
+            candidati_entrata,
+            key=lambda a: (fascia(a), -panchina.index(a)),
+            default=None,
+        )
+        candidati_uscita = [a for a in scelti if not prioritario(a)]
+        esce = min(
+            candidati_uscita,
+            key=lambda a: (fascia(a), -scelti.index(a)),
+            default=None,
+        )
         if entra is None or esce is None:
             log.warning(
                 f"Quota riviste urgenza/generaliste non raggiunta: mancano "
@@ -426,8 +442,9 @@ def componi_digest(graduatoria):
             )
             break
         log.info(
-            f"    scambio per quota AREA: entra {entra['pmid']} ({entra['rivista']}), "
-            f"esce {esce['pmid']} ({esce['rivista']})"
+            f"    scambio per quota AREA: entra {entra['pmid']} "
+            f"({entra['rivista']}, fascia {fascia(entra)}), "
+            f"esce {esce['pmid']} ({esce['rivista']}, fascia {fascia(esce)})"
         )
         scelti[scelti.index(esce)] = entra
         panchina.remove(entra)
@@ -436,7 +453,11 @@ def componi_digest(graduatoria):
     # si ripristina l'ordine di rilevanza deciso dal modello
     scelti.sort(key=lambda a: graduatoria.index(a))
     n_prior = sum(1 for a in scelti if prioritario(a))
-    log.info(f"Composizione: {n_prior} da riviste urgenza/generaliste su {len(scelti)}")
+    profilo = "/".join(str(fascia(a)) for a in scelti)
+    log.info(
+        f"Composizione: {n_prior} da riviste urgenza/generaliste su {len(scelti)} "
+        f"- fasce in ordine di rilevanza: {profilo}"
+    )
     return scelti
 
 
@@ -535,8 +556,15 @@ def filtra_top_articoli(candidati):
             a for a in candidati
             if a["pmid"] not in gia and a["pmid"] not in pmid_riserva
         ]
+        # Questi articoli non hanno un giudizio di rilevanza del modello: l'unico
+        # ordinamento era la data. La fascia diventa il criterio primario, la data
+        # lo spareggio. Sulla riserva invece l'ordine del modello resta valido e
+        # non viene toccato.
         altri.sort(
-            key=lambda a: a["pubdate_dt"] or datetime.min.replace(tzinfo=timezone.utc),
+            key=lambda a: (
+                a.get("fascia", cfg.FASCIA_DEFAULT),
+                a["pubdate_dt"] or datetime.min.replace(tzinfo=timezone.utc),
+            ),
             reverse=True,
         )
         for a in riserva + altri:

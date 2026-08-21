@@ -101,26 +101,36 @@ NCBI_TOOL          = "em_weekly_digest_torino"  # User-Agent per i feed PubMed
 # Serve al vincolo di composizione: il digest deve contenere almeno
 # MIN_EM_GEN articoli da riviste em o gen, per non scivolare tutto sulle
 # specialistiche, che pubblicano molto di più.
+#
+# "fascia": peso editoriale della rivista, 5 = massimo, 1 = minimo.
+# NON e' l'impact factor grezzo: usare l'IF come numero (NEJM ~96 contro
+# Ann Emerg Med ~5) schiaccerebbe le riviste di urgenza, che e' l'opposto
+# di cio' che serve a questo digest. Le fasce comprimono la scala e restano
+# stabili quando JCR aggiorna i valori.
+# La fascia interviene SOLO negli spareggi di composizione (componi_digest e
+# riempimento di riserva): non entra nel prompt di filtro, non tocca il taglio
+# dei candidati e non riordina mai il digest finale, che resta in ordine di
+# rilevanza deciso dal modello.
 # ═══════════════════════════════════════════════════════════════════════════════
 RIVISTE = [
-    {"nome": "New England Journal of Medicine", "nlmta": "N Engl J Med",       "issn": "0028-4793", "gruppo": "gen"},
-    {"nome": "The Lancet",                      "nlmta": "Lancet",             "issn": "0140-6736", "gruppo": "gen"},
-    {"nome": "JAMA",                            "nlmta": "JAMA",               "issn": "0098-7484", "gruppo": "gen"},
-    {"nome": "BMJ",                             "nlmta": "BMJ",                "issn": "0959-8138", "gruppo": "gen"},
-    {"nome": "Circulation",                     "nlmta": "Circulation",        "issn": "0009-7322", "gruppo": "spec"},
-    {"nome": "Chest",                           "nlmta": "Chest",              "issn": "0012-3692", "gruppo": "spec"},
-    {"nome": "Annals of Emergency Medicine",    "nlmta": "Ann Emerg Med",      "issn": "0196-0644", "gruppo": "em"},
-    {"nome": "Critical Care Medicine",          "nlmta": "Crit Care Med",      "issn": "0090-3493", "gruppo": "spec"},
-    {"nome": "Intensive Care Medicine",         "nlmta": "Intensive Care Med", "issn": "0342-4642", "gruppo": "spec"},
-    {"nome": "Resuscitation",                   "nlmta": "Resuscitation",      "issn": "0300-9572", "gruppo": "em"},
-    {"nome": "Academic Emergency Medicine",     "nlmta": "Acad Emerg Med",     "issn": "1069-6563", "gruppo": "em"},
-    {"nome": "Emergency Medicine Journal",      "nlmta": "Emerg Med J",        "issn": "1472-0205", "gruppo": "em"},
+    {"nome": "New England Journal of Medicine", "nlmta": "N Engl J Med",       "issn": "0028-4793", "gruppo": "gen",   "fascia": 5},
+    {"nome": "The Lancet",                      "nlmta": "Lancet",             "issn": "0140-6736", "gruppo": "gen",   "fascia": 5},
+    {"nome": "JAMA",                            "nlmta": "JAMA",               "issn": "0098-7484", "gruppo": "gen",   "fascia": 5},
+    {"nome": "BMJ",                             "nlmta": "BMJ",                "issn": "0959-8138", "gruppo": "gen",   "fascia": 5},
+    {"nome": "Circulation",                     "nlmta": "Circulation",        "issn": "0009-7322", "gruppo": "spec",  "fascia": 4},
+    {"nome": "Chest",                           "nlmta": "Chest",              "issn": "0012-3692", "gruppo": "spec",  "fascia": 3},
+    {"nome": "Annals of Emergency Medicine",    "nlmta": "Ann Emerg Med",      "issn": "0196-0644", "gruppo": "em",    "fascia": 3},
+    {"nome": "Critical Care Medicine",          "nlmta": "Crit Care Med",      "issn": "0090-3493", "gruppo": "spec",  "fascia": 3},
+    {"nome": "Intensive Care Medicine",         "nlmta": "Intensive Care Med", "issn": "0342-4642", "gruppo": "spec",  "fascia": 4},
+    {"nome": "Resuscitation",                   "nlmta": "Resuscitation",      "issn": "0300-9572", "gruppo": "em",    "fascia": 3},
+    {"nome": "Academic Emergency Medicine",     "nlmta": "Acad Emerg Med",     "issn": "1069-6563", "gruppo": "em",    "fascia": 1},
+    {"nome": "Emergency Medicine Journal",      "nlmta": "Emerg Med J",        "issn": "1472-0205", "gruppo": "em",    "fascia": 1},
     # Aggiunte: colmano i buchi su neurologia vascolare e terapia intensiva open access.
-    {"nome": "Stroke",                          "nlmta": "Stroke",             "issn": "0039-2499", "gruppo": "spec"},
+    {"nome": "Stroke",                          "nlmta": "Stroke",             "issn": "0039-2499", "gruppo": "spec",  "fascia": 3},
     # Critical Care è solo online: se il feed torna vuoto, usare l'eISSN 1466-609X.
-    {"nome": "Critical Care",                   "nlmta": "Crit Care",          "issn": "1364-8535", "gruppo": "spec"},
+    {"nome": "Critical Care",                   "nlmta": "Crit Care",          "issn": "1364-8535", "gruppo": "spec",  "fascia": 3},
     # Annals of Intensive Care è solo online e ha un unico ISSN.
-    {"nome": "Annals of Intensive Care",        "nlmta": "Ann Intensive Care", "issn": "2110-5820", "gruppo": "spec"},
+    {"nome": "Annals of Intensive Care",        "nlmta": "Ann Intensive Care", "issn": "2110-5820", "gruppo": "spec",  "fascia": 2},
 ]
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -132,6 +142,7 @@ ARTICOLI_FINALI = 5   # numero articoli nel digest finale
 ARTICOLI_RICHIESTI = 8  # quanti chiederne al modello: i 3 in più sono la riserva
                         # da cui il codice attinge per rispettare i vincoli
 MIN_EM_GEN = 2        # minimo di articoli da riviste "em" o "gen" nel digest
+FASCIA_DEFAULT = 3    # fascia attribuita a una rivista priva del campo "fascia"
 GRUPPI_PRIORITARI = {"em", "gen"}
 ETICHETTA_GRUPPO = {"em": "urgenza", "gen": "generale", "spec": "specialistica"}
 MINIMO_ARTICOLI = 3   # sotto questa soglia scatta il fallback di riempimento
