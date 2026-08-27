@@ -149,11 +149,24 @@ def estrai_autori(item):
 def fetch_feed(rivista):
     url = url_rss_pubmed(rivista["issn"], rivista.get("limit"))
     try:
-        raw = fetch_url(url)
-        root = ET.fromstring(raw)
+        root = ET.fromstring(fetch_url(url))
     except Exception as e:
         log.error(f"  {rivista['nlmta']}: errore RSS {e}")
         return []
+
+    # Un feed senza <item> arriva come HTTP 200 con XML valido: fetch_url non
+    # solleva nulla e non ritenta. PubMed pero' restituisce feed vuoti anche in
+    # modo transitorio (il 26/08/2026 quattro riviste consolidate insieme), per
+    # cui vale un secondo tentativo prima di darla per persa.
+    if not root.findall(".//item"):
+        time.sleep(3)
+        try:
+            root = ET.fromstring(fetch_url(url))
+            if root.findall(".//item"):
+                log.info(f"  {rivista['nlmta']}: feed vuoto al primo tentativo, "
+                         "recuperato al secondo")
+        except Exception as e:
+            log.warning(f"  {rivista['nlmta']}: secondo tentativo fallito ({e})")
     articoli = []
     for item in root.findall(".//item"):
         titolo   = (item.findtext("title") or "").strip()
@@ -172,7 +185,6 @@ def fetch_feed(rivista):
             "autori":     autori,
             "rivista":    rivista["nome"],
             "gruppo":     rivista.get("gruppo", "spec"),
-            "fascia":     rivista.get("fascia", cfg.FASCIA_DEFAULT),
             "data":       pubdate.strftime("%Y %b %d") if pubdate else "",
             "pubdate_dt": pubdate,
             "doi":        doi,
@@ -180,11 +192,15 @@ def fetch_feed(rivista):
             "url":        link or f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
         })
     if not articoli:
-        # Causa quasi sempre un ISSN errato: PubMed risponde 200 con un feed vuoto,
-        # quindi senza questo controllo la rivista sparirebbe in silenzio.
+        # Due cause possibili, e il messaggio non deve suggerirne una sola:
+        # un ISSN errato (feed sempre vuoto) o un'indisponibilita' temporanea di
+        # PubMed (feed vuoto solo oggi). Se la rivista ha prodotto articoli nelle
+        # settimane precedenti, l'ISSN e' giusto e si tratta della seconda.
         log.error(
-            f"  {rivista['nlmta']}: FEED VUOTO - verificare l'ISSN {rivista['issn']} "
-            "(per le riviste solo online provare l'eISSN)"
+            f"  {rivista['nlmta']}: FEED VUOTO (ISSN {rivista['issn']}). "
+            "Se la rivista funzionava nei run precedenti e' un'indisponibilita' "
+            "temporanea di PubMed; se non ha mai prodotto articoli, verificare "
+            "l'ISSN (per le riviste solo online provare l'eISSN)."
         )
     else:
         log.info(f"  {rivista['nlmta']}: {len(articoli)} articoli dal feed")
@@ -414,27 +430,12 @@ def componi_digest(graduatoria):
     def prioritario(a):
         return a.get("gruppo") in cfg.GRUPPI_PRIORITARI
 
-    def fascia(a):
-        return a.get("fascia", cfg.FASCIA_DEFAULT)
-
     mancanti = cfg.MIN_EM_GEN - sum(1 for a in scelti if prioritario(a))
     while mancanti > 0:
-        # Lo scambio e' imposto dalla quota: la graduatoria del modello va comunque
-        # violata. A parita' di vincolo si sceglie allora la coppia che alza il peso
-        # editoriale del digest: entra la fascia piu' alta, esce la piu' bassa.
-        # La posizione in graduatoria resta il criterio di spareggio fra pari fascia.
-        candidati_entrata = [a for a in panchina if prioritario(a)]
-        entra = max(
-            candidati_entrata,
-            key=lambda a: (fascia(a), -panchina.index(a)),
-            default=None,
-        )
-        candidati_uscita = [a for a in scelti if not prioritario(a)]
-        esce = min(
-            candidati_uscita,
-            key=lambda a: (fascia(a), -scelti.index(a)),
-            default=None,
-        )
+        # candidato in entrata: il primo em/gen in panchina (ordine = rilevanza)
+        entra = next((a for a in panchina if prioritario(a)), None)
+        # candidato in uscita: lo specialistico peggio piazzato fra i scelti
+        esce = next((a for a in reversed(scelti) if not prioritario(a)), None)
         if entra is None or esce is None:
             log.warning(
                 f"Quota riviste urgenza/generaliste non raggiunta: mancano "
@@ -442,9 +443,8 @@ def componi_digest(graduatoria):
             )
             break
         log.info(
-            f"    scambio per quota AREA: entra {entra['pmid']} "
-            f"({entra['rivista']}, fascia {fascia(entra)}), "
-            f"esce {esce['pmid']} ({esce['rivista']}, fascia {fascia(esce)})"
+            f"    scambio per quota AREA: entra {entra['pmid']} ({entra['rivista']}), "
+            f"esce {esce['pmid']} ({esce['rivista']})"
         )
         scelti[scelti.index(esce)] = entra
         panchina.remove(entra)
@@ -453,11 +453,7 @@ def componi_digest(graduatoria):
     # si ripristina l'ordine di rilevanza deciso dal modello
     scelti.sort(key=lambda a: graduatoria.index(a))
     n_prior = sum(1 for a in scelti if prioritario(a))
-    profilo = "/".join(str(fascia(a)) for a in scelti)
-    log.info(
-        f"Composizione: {n_prior} da riviste urgenza/generaliste su {len(scelti)} "
-        f"- fasce in ordine di rilevanza: {profilo}"
-    )
+    log.info(f"Composizione: {n_prior} da riviste urgenza/generaliste su {len(scelti)}")
     return scelti
 
 
@@ -556,15 +552,8 @@ def filtra_top_articoli(candidati):
             a for a in candidati
             if a["pmid"] not in gia and a["pmid"] not in pmid_riserva
         ]
-        # Questi articoli non hanno un giudizio di rilevanza del modello: l'unico
-        # ordinamento era la data. La fascia diventa il criterio primario, la data
-        # lo spareggio. Sulla riserva invece l'ordine del modello resta valido e
-        # non viene toccato.
         altri.sort(
-            key=lambda a: (
-                a.get("fascia", cfg.FASCIA_DEFAULT),
-                a["pubdate_dt"] or datetime.min.replace(tzinfo=timezone.utc),
-            ),
+            key=lambda a: a["pubdate_dt"] or datetime.min.replace(tzinfo=timezone.utc),
             reverse=True,
         )
         for a in riserva + altri:
@@ -1044,6 +1033,7 @@ def pubblica_facebook_programmata(immagini, articoli, wl):
     coppie = list(zip(immagini, articoli))
     slot = prossimi_slot_feriali(len(coppie))
     ok = 0
+    creati = []
     for k, ((percorso, art), quando) in enumerate(zip(coppie, slot), 1):
         try:
             # La foto si carica non pubblicata, poi il post di feed la allega
@@ -1061,6 +1051,8 @@ def pubblica_facebook_programmata(immagini, articoli, wl):
                 f"    post {k}/{len(coppie)} programmato per "
                 f"{quando.strftime('%a %d/%m %H:%M')} -> {p.get('id')}"
             )
+            if p.get("id"):
+                creati.append((p["id"], art))
             ok += 1
         except urllib.error.HTTPError as e:
             log.error(f"    post {k} HTTP {e.code}: "
@@ -1069,12 +1061,37 @@ def pubblica_facebook_programmata(immagini, articoli, wl):
             log.error(f"    post {k} fallito: {e}")
 
     log.info(f"Facebook: {ok}/{len(coppie)} post programmati")
+    if creati:
+        scrivi_post_gruppo(creati[0][0], creati[0][1], wl)
     if ok and slot[-1].date() - slot[0].date() > timedelta(days=6):
         log.warning(
             "Gli slot superano i 6 giorni: l'ultimo post cadrebbe dopo il digest "
             "successivo. Valutare di anticipare FB_ORA o la corsa settimanale."
         )
     return ok > 0
+
+
+def link_post(post_id):
+    """Da '<page_id>_<post_id>' all'URL pubblico del post."""
+    parti = str(post_id).split("_")
+    if len(parti) == 2:
+        return f"https://www.facebook.com/{parti[0]}/posts/{parti[1]}"
+    return f"https://www.facebook.com/{post_id}"
+
+
+def scrivi_post_gruppo(primo_id, primo_art, wl, link=None):
+    """Prepara il messaggio da incollare a mano nel gruppo Facebook."""
+    testo = cfg.POST_GRUPPO.format(
+        nome=cfg.NOME_NEWSLETTER.split(" a cura")[0],
+        settimana=wl["settimana"], anno=wl["anno"],
+        primo_titolo=primo_art["titolo"],
+        link=link or link_post(primo_id),
+        pagina=cfg.FB_NOME_PAGINA,
+    )
+    with open(cfg.FB_FILE_GRUPPO, "w", encoding="utf-8") as f:
+        f.write(testo)
+    log.info(f"Messaggio per il gruppo scritto in {cfg.FB_FILE_GRUPPO}")
+    return testo
 
 
 def pubblica_facebook(immagini, articoli, wl):
@@ -1248,6 +1265,10 @@ def main():
             else:
                 f.write(testo_post_facebook(selezionati, wl))
                 log.info("Didascalia Facebook (post unico) in post_facebook.txt")
+        # In prova a vuoto i post non esistono ancora: il link andrà inserito a
+        # mano dopo la pubblicazione vera.
+        scrivi_post_gruppo(None, selezionati[0], wl,
+                           link="[link disponibile dopo la pubblicazione]")
         log.info("--- SELEZIONE FINALE ---")
         for i, a in enumerate(selezionati, 1):
             tipi = ", ".join(a.get("pubtypes") or []) or "tipo n/d"
