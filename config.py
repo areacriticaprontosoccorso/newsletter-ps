@@ -364,8 +364,12 @@ LOGO_URL        = "https://raw.githubusercontent.com/areacriticaprontosoccorso/n
 DISEGNO_NON_DETERMINATO = "non-determinato"
 
 DISEGNI = [
+    # Solo se il testo STESSO e' una linea guida o un consenso. La sola parola
+    # "guidelines" compare in moltissimi studi ("adherence to guidelines"): non basta.
     ("linea-guida", [
-        r"\bguidelines?\b", r"\bconsensus (?:statement|recommendations?|document)\b",
+        r"\b(?:these|this) (?:\w+ ){0,2}guidelines?\b",
+        r"\bguidelines? (?:recommend|provide|present|update|were developed|was developed)",
+        r"\bconsensus (?:statement|recommendations?|document)\b",
         r"\bposition statement\b", r"\bexpert (?:consensus|panel)\b", r"\bdelphi\b",
     ]),
     ("protocollo", [
@@ -379,7 +383,6 @@ DISEGNI = [
     ("revisione-sistematica", [r"\bsystematic review\b", r"\bscoping review\b"]),
     ("revisione-narrativa", [
         r"\bnarrative review\b", r"\bthis (?:narrative )?review\b",
-        r"\bstate[- ]of[- ]the[- ]art\b",
     ]),
     # Solo se l'analisi è DICHIARATA come derivata da un altro studio ("post hoc
     # analysis of the X trial"). Un RCT primario che riporta un sottogruppo post hoc
@@ -446,6 +449,11 @@ ETICHETTA_DISEGNO = {
 
 # Protocolli di studio: non hanno risultati, vanno scartati prima del filtro.
 DISEGNI_DA_ESCLUDERE = {"protocollo"}
+
+# Disegni che identificano una sintesi di letteratura senza dati primari: il badge
+# diventa "revisione" anche quando il PublicationType non e' ancora stato assegnato.
+# La meta-analisi e' esclusa di proposito (produce stime proprie).
+DISEGNI_REVISIONE = {"revisione-sistematica", "revisione-narrativa", "linea-guida"}
 
 # Il badge "cambia-pratica" è consentito SOLO a questi disegni. Per gli altri,
 # riconosciuti ma non abilitati, declassa_badge() porta il badge a
