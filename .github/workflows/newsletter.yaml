@@ -1,0 +1,81 @@
+name: EM Weekly Digest
+
+# Trigger: ESCLUSIVAMENTE esterno via workflow_dispatch.
+# Lo scheduling è gestito da cron-job.org, che chiama l'endpoint GitHub:
+#   POST https://api.github.com/repos/<owner>/<repo>/actions/workflows/newsletter.yml/dispatches
+#   body: {"ref": "main"}
+# cron-job.org va configurato su LUNEDÌ 13:00 ora di Roma (gestisce il fuso/DST,
+# a differenza dei cron schedulati di GitHub Actions che sono solo in UTC).
+# Nessuno 'schedule' qui: cosi' il workflow non viene mai disattivato per
+# inattivita' e parte solo quando lo chiama cron-job.org (o un avvio manuale).
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Prova a vuoto: esegue tutto ma NON invia l'email"
+        type: boolean
+        default: false
+      solo_facebook:
+        description: "Solo Facebook: pubblica i post ma NON invia l'email"
+        type: boolean
+        default: false
+
+# Evita doppi invii se cron-job.org spara due trigger ravvicinati:
+# il secondo run attende (non cancella) ma non gira in parallelo.
+concurrency:
+  group: newsletter-invio
+  cancel-in-progress: false
+
+jobs:
+  invia-newsletter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Installa Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # Versioni pinnate: un breaking change delle librerie Google non deve
+      # poter bloccare l'invio del lunedì. Aggiornare qui in modo controllato.
+      - name: Installa dipendenze
+        run: |
+          pip install \
+            google-auth-oauthlib==1.4.0 \
+            google-auth-httplib2==0.4.0 \
+            google-api-python-client==2.198.0
+          pip install playwright==1.49.0
+          playwright install --with-deps chromium
+
+      - name: Esegui newsletter
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_TOKEN: ${{ secrets.GMAIL_TOKEN }}
+          DESTINATARI: ${{ secrets.DESTINATARI }}
+          FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
+          FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
+          # Vuoto quando il workflow parte da cron-job.org: l'invio resta il default.
+          DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+          SOLO_FACEBOOK: ${{ inputs.solo_facebook && '1' || '' }}
+        run: python newsletter_rss.py
+
+      # Caricato anche quando lo step precedente fallisce: il log e' proprio
+      # cio' che serve quando qualcosa e' andato storto.
+      - name: Carica anteprima e log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ github.run_number }}
+          path: |
+            anteprima_digest.html
+            newsletter.log
+            immagini/
+            post_facebook.txt
+            post_gruppo.txt
+            archivio/
+          if-no-files-found: warn
+          retention-days: 14
