@@ -75,5 +75,7 @@ jobs:
             newsletter.log
             immagini/
             post_facebook.txt
+            post_gruppo.txt
+            archivio/
           if-no-files-found: warn
           retention-days: 14

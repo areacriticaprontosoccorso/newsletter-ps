@@ -4,6 +4,10 @@ Pronto Soccorso San Giovanni Bosco, Torino
 Tutti i parametri configurabili in un solo posto.
 Le credenziali vere stanno in variabili d'ambiente (secrets GitHub Actions).
 
+VERSIONE ECONOMICA: la pipeline fa 3 chiamate API a settimana (screening, graduatoria,
+sintesi di tutti gli articoli in una volta), come prima delle sintesi per articolo.
+La sintesi articolo per articolo con estrazione e revisore e' stata tolta apposta.
+
 COMPATIBILITA': questo file mantiene tutti i nomi usati dalla versione attuale di
 newsletter_rss.py, che quindi funziona anche senza modifiche (e senza il bug di
 scrivi_post_gruppo). Le sezioni marcate [NUOVO] diventano operative solo quando
@@ -19,10 +23,6 @@ import json
 # ═══════════════════════════════════════════════════════════════════════════════
 ANTHROPIC_API_KEY  = os.environ.get("ANTHROPIC_API_KEY", "")
 ANTHROPIC_MODEL    = "claude-sonnet-5"
-# [NUOVO] Modello della chiamata di revisione. Per un controllo davvero
-# indipendente conviene un modello diverso da quello che scrive; di default
-# coincide, e la sola indipendenza è il contesto separato.
-ANTHROPIC_MODEL_REVISORE = os.environ.get("ANTHROPIC_MODEL_REVISORE", ANTHROPIC_MODEL)
 GMAIL_USER         = os.environ.get("GMAIL_USER", "")
 # Invio tramite OAuth2: il token completo (JSON) sta in GMAIL_TOKEN.
 GMAIL_TOKEN        = os.environ.get("GMAIL_TOKEN", "")
@@ -205,25 +205,10 @@ FILTRO_FINALE_THINKING   = True  # nel 2° passaggio NON inviare {"thinking": di
 MAX_TOKENS_SCREENING     = 2000
 MAX_TOKENS_FILTRO_FINALE = 6000  # include lo spazio per il ragionamento
 
-# ── [NUOVO] Sintesi: una chiamata per articolo, in due fasi + revisione ──────
-SINTESI_PER_ARTICOLO     = True   # una chiamata per articolo, non una per tutti
-SINTESI_DUE_FASI         = True   # fase 1 estrazione strutturata, fase 2 redazione
-TITOLO_TRADOTTO          = True   # il campo "titolo_it" compare sopra l'originale
-MAX_TOKENS_ESTRAZIONE    = 1500
-MAX_TOKENS_REDAZIONE     = 1500
-MAX_TOKENS_REVISORE      = 1500
-
-# ── [NUOVO] Revisore indipendente ─────────────────────────────────────────────
-# Seconda chiamata che confronta la sintesi con l'abstract originale. NON riscrive:
-# segnala errori; se ce ne sono di gravità bloccante, il redattore riscrive con le
-# correzioni come feedback. Gravità: "alta" = altera il significato clinico,
-# "media" = impreciso ma non fuorviante, "bassa" = stile.
-REVISORE_ABILITATO        = True
-REVISORE_GRAVITA_BLOCCANTE = {"alta", "media"}
-REVISORE_MAX_TENTATIVI    = 2      # cicli riscrittura+revisione dopo la prima bozza
-# Cosa fare se dopo i tentativi restano errori bloccanti: "scarta" toglie
-# l'articolo dal digest (subentra la riserva); "pubblica" lo lascia e lo logga.
-REVISORE_SE_FALLISCE      = "scarta"
+# ── [NUOVO] Titolo tradotto ───────────────────────────────────────────────────
+# Il campo "titolo_it" (prodotto dalla stessa chiamata di sintesi, senza costi
+# aggiuntivi) compare sopra il titolo originale in email, schede PNG e post.
+TITOLO_TRADOTTO = True
 
 # ── [NUOVO] Archivio settimanale per la revisione ─────────────────────────────
 # Selezione + estrazione + sintesi + esito di lint e revisore, in un JSON per
@@ -511,12 +496,11 @@ _ELENCO_TEMI = ", ".join(TEMI)
 # ═══════════════════════════════════════════════════════════════════════════════
 # [NUOVO] CONTROLLI DETERMINISTICI SULLA SINTESI (lint) — costo zero
 # ═══════════════════════════════════════════════════════════════════════════════
-# Se controlla_lint() restituisce problemi, la sintesi viene riscritta passando i
-# problemi come feedback, al massimo LINT_MAX_TENTATIVI volte; poi si prosegue e
-# si logga. I pattern sono volutamente severi: un falso positivo costa una
-# riscrittura, un falso negativo costa un errore in una newsletter clinica.
+# controlla_lint() NON fa ripetere nessuna chiamata (sarebbe un costo): i problemi
+# trovati vengono scritti nel log e nell'archivio settimanale, per rivedere la
+# sintesi prima di condividerla e per tarare i prompt. I pattern sono volutamente
+# severi: preferibile un avviso di troppo a un errore in una newsletter clinica.
 LINT_ABILITATO        = True
-LINT_MAX_TENTATIVI    = 2
 LINT_PAROLE_SINTESI   = (90, 120)   # intervallo ammesso, estremi inclusi
 LINT_MAX_PAROLE_RILEVANZA = 30
 LINT_MAX_PAROLE_LIMITE    = 25
@@ -866,26 +850,6 @@ ESEMPI = [
             "intubation was less frequent with HFNO (22% vs 38%). CONCLUSIONS: HFNO did not significantly "
             "reduce intubation, although it improved dyspnoea and may benefit patients with severe hypoxaemia."
         ),
-        "estrazione": {
-            "pmid": "00000001", "disegno": "rct",
-            "popolazione": "adulti con insufficienza respiratoria ipossiemica acuta (PaO2/FiO2 <= 200) in PS",
-            "setting": "PS", "n_totale": 612,
-            "intervento": "ossigenoterapia ad alti flussi (HFNO)", "confronto": "ossigenoterapia standard",
-            "endpoint_primario": "intubazione entro 7 giorni",
-            "esito_endpoint_primario": "negativo",
-            "effetto_primario": {"misura": "RR", "valore": "0.86", "ic95": "0.60 to 1.24", "p": "0.42"},
-            "citazione_endpoint": "Intubation within 7 days occurred in 43 patients (14.1%) in the HFNO group and 50 (16.3%) in the standard oxygen group",
-            "risultati_secondari": [
-                {"testo": "dispnea a 2 ore minore con HFNO (differenza media -0.8 punti, IC 95% -1.3 to -0.3)", "prespecificato": None},
-                {"testo": "mortalità a 28 giorni 9.2% vs 10.1%, nessuna differenza", "prespecificato": None},
-                {"testo": "intubazione 22% vs 38% se PaO2/FiO2 <= 100", "prespecificato": False},
-            ],
-            "sicurezza": None,
-            "conclusioni_autori": "HFNO did not significantly reduce intubation, although it improved dyspnoea and may benefit patients with severe hypoxaemia",
-            "spin": {"presente": True, "motivo": "le conclusioni valorizzano un beneficio nei casi gravi che deriva da un sottogruppo post hoc"},
-            "limiti_desumibili": ["studio in aperto", "sottogruppo post hoc"],
-            "abstract_con_risultati": True,
-        },
         "output": {
             "pmid": "00000001",
             "titolo_it": "Ossigenoterapia ad alti flussi o ossigeno standard nell'insufficienza respiratoria ipossiemica acuta in Pronto Soccorso: studio randomizzato",
@@ -919,24 +883,6 @@ ESEMPI = [
             "CONCLUSIONS: Lung-ultrasound-guided diuretic therapy reduced death or rehospitalisation at 90 "
             "days, at the cost of more acute kidney injury."
         ),
-        "estrazione": {
-            "pmid": "00000002", "disegno": "rct",
-            "popolazione": "adulti con scompenso cardiaco acuto ricoverati dal PS (età media 79 anni)",
-            "setting": "PS", "n_totale": 840,
-            "intervento": "terapia diuretica guidata dall'ecografia polmonare", "confronto": "trattamento abituale",
-            "endpoint_primario": "composito di morte per qualsiasi causa o riospedalizzazione per scompenso a 90 giorni",
-            "esito_endpoint_primario": "positivo",
-            "effetto_primario": {"misura": "HR", "valore": "0.67", "ic95": "0.50 to 0.90", "p": "0.007"},
-            "citazione_endpoint": "the primary outcome occurred in 76 of 420 (18.1%) in the ultrasound group and 108 of 420 (25.7%) in the usual care group",
-            "risultati_secondari": [
-                {"testo": "morte a 90 giorni 9.5% vs 11.9% (HR 0.78, IC 95% 0.52 to 1.17), nessuna differenza", "prespecificato": None},
-            ],
-            "sicurezza": "danno renale acuto più frequente con la terapia ecoguidata (14.8% vs 9.8%)",
-            "conclusioni_autori": "Lung-ultrasound-guided diuretic therapy reduced death or rehospitalisation at 90 days, at the cost of more acute kidney injury",
-            "spin": {"presente": False, "motivo": ""},
-            "limiti_desumibili": ["valutazione degli esiti in cieco ma non di medici e pazienti"],
-            "abstract_con_risultati": True,
-        },
         "output": {
             "pmid": "00000002",
             "titolo_it": "Terapia diuretica guidata dall'ecografia polmonare nello scompenso cardiaco acuto: studio randomizzato",
@@ -968,24 +914,6 @@ ESEMPI = [
             "(adjusted OR 0.79, 95% CI 0.66 to 0.94). CONCLUSIONS: Earlier antibiotic administration was "
             "associated with lower in-hospital mortality; residual confounding cannot be excluded."
         ),
-        "estrazione": {
-            "pmid": "00000003", "disegno": "propensity",
-            "popolazione": "adulti con sospetta sepsi in 14 PS",
-            "setting": "PS", "n_totale": 12450,
-            "intervento": "antibiotici entro 1 ora dall'arrivo", "confronto": "antibiotici fra 1 e 3 ore",
-            "endpoint_primario": "mortalità intraospedaliera",
-            "esito_endpoint_primario": "positivo",
-            "effetto_primario": {"misura": "OR aggiustato", "valore": "0.88", "ic95": "0.79 to 0.98", "p": None},
-            "citazione_endpoint": "In-hospital mortality was 9.8% in the early group and 11.6% in the later group",
-            "risultati_secondari": [
-                {"testo": "associazione più marcata nello shock settico (OR aggiustato 0.79, IC 95% 0.66 to 0.94)", "prespecificato": None},
-            ],
-            "sicurezza": None,
-            "conclusioni_autori": "Earlier antibiotic administration was associated with lower in-hospital mortality; residual confounding cannot be excluded",
-            "spin": {"presente": False, "motivo": ""},
-            "limiti_desumibili": ["retrospettivo", "confondimento residuo"],
-            "abstract_con_risultati": True,
-        },
         "output": {
             "pmid": "00000003",
             "titolo_it": "Tempistica della terapia antibiotica nei pazienti con sospetta sepsi in Pronto Soccorso: studio di coorte retrospettivo",
@@ -1018,15 +946,9 @@ _NOTA_ESEMPI = (
     "viene fornito."
 )
 
-# Esempi nel formato "abstract -> scheda" (sintesi diretta, prompt storici).
+# Esempi nel formato "abstract -> scheda".
 ESEMPI_DIRETTI = _NOTA_ESEMPI + "\n\n" + "\n\n".join(
     f"ESEMPIO {i}\nABSTRACT:\n{e['abstract_en']}\n\nRISPOSTA:\n{_json([e['output']])}"
-    for i, e in enumerate(ESEMPI, 1)
-)
-
-# Esempi nel formato "estrazione -> scheda" (fase di redazione).
-ESEMPI_REDAZIONE = _NOTA_ESEMPI + "\n\n" + "\n\n".join(
-    f"ESEMPIO {i}\nESTRAZIONE:\n{_json(e['estrazione'])}\n\nRISPOSTA:\n{_json([e['output']])}"
     for i, e in enumerate(ESEMPI, 1)
 )
 
@@ -1035,33 +957,11 @@ scientifica e di traduzione medico-scientifica dall'inglese all'italiano. Scrivi
 italiano, con linguaggio medico-scientifico preciso, del registro usato nelle riviste
 italiane di area critica."""
 
-# [ATTIVO SUBITO] Sintesi diretta (abstract -> scheda), usata dal codice attuale.
 SYSTEM_SINTESI = (
     _PERSONA_SINTESI + "\n\n" + REGOLE_TRADUZIONE + "\n\n" + ESEMPI_DIRETTI
 )
 
-# [NUOVO] Fase 1 della sintesi: estrazione strutturata. Nessuna prosa.
-SYSTEM_ESTRAZIONE = """Sei un metodologo della ricerca clinica. Estrai dati strutturati dall'abstract di
-un articolo medico, con la massima fedeltà. Non interpreti, non valuti, non completi:
-se un'informazione non è nell'abstract il campo vale null. Riporti i numeri ESATTAMENTE
-come compaiono, con lo stesso separatore decimale. Rispondi solo con JSON valido."""
-
-# [NUOVO] Fase 2: redazione a partire dall'estrazione.
-SYSTEM_REDAZIONE = (
-    _PERSONA_SINTESI + " Scrivi a partire da un'estrazione strutturata dei dati "
-    "dell'abstract, non dall'abstract stesso.\n\n" + REGOLE_TRADUZIONE + "\n\n"
-    + ESEMPI_REDAZIONE
-)
-
-# [NUOVO] Revisore indipendente.
-SYSTEM_REVISORE = """Sei un revisore scientifico severo e indipendente. Ricevi l'abstract originale di
-un articolo e la scheda in italiano scritta da un altro autore. Il tuo unico compito
-è trovare gli errori della scheda rispetto all'abstract. Non la riscrivi, non ne
-migliori lo stile, non dai giudizi di merito sullo studio. Se la scheda è corretta
-dici che è corretta: segnali un errore solo se puoi indicare la frase e il motivo.
-Rispondi solo con JSON valido."""
-
-# ── PROMPT DI SINTESI (compatibili con il codice attuale) ────────────────────
+# ── PROMPT DI SINTESI ─────────────────────────────────────────────────────────
 # Sintesi di TUTTI gli articoli in una sola chiamata API.
 # Segnaposto: {articoli}. [ATTIVO SUBITO] ora con titolo_it e regola sull'endpoint.
 PROMPT_SINTESI_MULTI = """Analizza OGNI articolo della lista e produci per ciascuno
@@ -1108,8 +1008,7 @@ Riporta il "pmid" esattamente come ti è stato fornito.
   }}
 ]""".replace("@@TIPI@@", DEFINIZIONI_TIPO).replace("@@ENDPOINT@@", REGOLE_ENDPOINT)
 
-# Sintesi di un singolo articolo (fallback se dal multi manca qualcosa, e chiamata
-# per articolo quando SINTESI_PER_ARTICOLO è attivo ma SINTESI_DUE_FASI no).
+# Sintesi di un singolo articolo (fallback se dal multi manca qualcosa).
 # Restituisce un array di UN elemento, così da riusare lo stesso parser del multi.
 PROMPT_SINTESI = """Analizza l'articolo e produci cinque campi:
 
@@ -1149,185 +1048,6 @@ senza testo prima o dopo, senza blocchi markdown:
     "tipo": "conferma"
   }}
 ]""".replace("@@TIPI@@", DEFINIZIONI_TIPO).replace("@@ENDPOINT@@", REGOLE_ENDPOINT)
-
-# ── [NUOVO] FASE 1: ESTRAZIONE ────────────────────────────────────────────────
-# Segnaposto: {pmid}, {titolo}, {rivista}, {data}, {pubtypes}, {abstract}.
-# Restituisce un array di UN oggetto. Il codice può verificare che
-# "citazione_endpoint" sia davvero una sottostringa dell'abstract: se non lo è,
-# l'estrazione è inventata e va rifatta.
-PROMPT_ESTRAZIONE = """Estrai dall'abstract i dati strutturati qui sotto. Usa SOLO ciò che c'è scritto: se un
-dato manca, il campo vale null. Non calcolare, non dedurre, non tradurre i numeri.
-I campi testuali brevi possono essere in italiano; "citazione_endpoint" e
-"conclusioni_autori" devono essere citazioni LETTERALI dell'abstract in inglese
-(copiate carattere per carattere, massimo 40 parole ciascuna).
-
-DEFINIZIONI:
-- "disegno": uno fra @@DISEGNI@@ (usa "non-determinato" se non è chiaro).
-- "esito_endpoint_primario":
-    "positivo"           = l'endpoint primario dichiarato è stato raggiunto (differenza
-                           statisticamente significativa nella direzione attesa, o non
-                           inferiorità dimostrata; per gli studi osservazionali,
-                           associazione statisticamente significativa sull'esito principale)
-    "negativo"           = endpoint primario NON raggiunto (nessuna differenza
-                           statisticamente significativa, IC che include l'assenza di
-                           effetto, non inferiorità non dimostrata) oppure effetto sfavorevole
-    "non-riportato"      = l'abstract non dà il risultato dell'endpoint primario
-    "non-applicabile"    = lo studio non ha un endpoint primario (revisioni, linee guida,
-                           accuratezza diagnostica, modelli)
-- "spin": presente = true SOLO se le conclusioni degli autori enfatizzano un beneficio
-  non supportato dall'endpoint primario (sottogruppi, endpoint secondari, post hoc,
-  "tendenza", "potrebbe" dopo un risultato non statisticamente significativo).
-- "prespecificato" dei risultati secondari: true / false / null (se non indicato).
-- "abstract_con_risultati": false se l'abstract non contiene risultati numerici.
-
-ARTICOLO:
-PMID: {pmid}
-Titolo: {titolo}
-Rivista: {rivista} ({data})
-PublicationType PubMed: {pubtypes}
-Abstract: {abstract}
-
-FORMATO DI RISPOSTA - restituisci SOLO un array JSON valido con UN solo oggetto, senza
-testo prima o dopo, senza blocchi markdown:
-
-[
-  {{
-    "pmid": "{pmid}",
-    "disegno": "rct",
-    "popolazione": "...",
-    "setting": "...",
-    "n_totale": 0,
-    "intervento": "...",
-    "confronto": "...",
-    "endpoint_primario": "...",
-    "esito_endpoint_primario": "negativo",
-    "effetto_primario": {{"misura": "RR", "valore": "...", "ic95": "...", "p": "..."}},
-    "citazione_endpoint": "...",
-    "risultati_secondari": [{{"testo": "...", "prespecificato": null}}],
-    "sicurezza": null,
-    "conclusioni_autori": "...",
-    "spin": {{"presente": false, "motivo": ""}},
-    "limiti_desumibili": ["..."],
-    "abstract_con_risultati": true
-  }}
-]""".replace("@@DISEGNI@@", ", ".join(f'"{k}"' for k, _ in DISEGNI))
-
-# ── [NUOVO] FASE 2: REDAZIONE ─────────────────────────────────────────────────
-# Segnaposto: {pmid}, {titolo}, {rivista}, {data}, {estrazione}, {feedback}.
-# {feedback} vale "(nessuna)" alla prima stesura; nelle riscritture contiene i
-# problemi trovati dal lint e dal revisore, uno per riga.
-PROMPT_REDAZIONE = """Scrivi in italiano la scheda dell'articolo usando ESCLUSIVAMENTE i dati
-dell'ESTRAZIONE qui sotto. Non aggiungere informazioni, non dedurre, non calcolare
-nuovi numeri. Riporta i numeri esattamente come sono nell'estrazione.
-
-CAMPI da produrre:
-0. "titolo_it" - traduzione fedele del titolo originale, senza aggiunte.
-1. "sintesi" - da 90 a 120 parole, nell'ordine: quesito clinico; disegno, popolazione
-   e numerosità; risultato dell'endpoint primario con la misura di effetto; altri
-   risultati e sicurezza; ricaduta sulla pratica in PS/Area Critica.
-2. "rilevanza" - UNA sola frase, massimo 30 parole, sulla ricaduta pratica concreta.
-3. "limite" - UNA sola frase, massimo 25 parole. Parti da "limiti_desumibili"; se
-   "spin.presente" è true, indica lo scarto fra endpoint primario e conclusioni degli
-   autori. Solo se non c'è davvero alcun limite identificabile, scrivi esattamente:
-   "Limiti non desumibili dall'abstract."
-4. @@TIPI@@
-
-@@ENDPOINT@@
-
-Se "abstract_con_risultati" è false: la "sintesi" è una sola frase che dichiara che
-l'abstract non riporta risultati, il tipo è "esplorativo".
-Se "esito_endpoint_primario" è "non-riportato", dillo esplicitamente.
-
-CORREZIONI RICHIESTE DAI CONTROLLI PRECEDENTI (applicale tutte; se vale
-"(nessuna)" è la prima stesura):
-{feedback}
-
-ARTICOLO:
-PMID: {pmid}
-Titolo originale: {titolo}
-Rivista: {rivista} ({data})
-
-ESTRAZIONE:
-{estrazione}
-
-FORMATO DI RISPOSTA - restituisci SOLO un array JSON valido con UN solo oggetto, senza
-testo prima o dopo, senza blocchi markdown:
-
-[
-  {{
-    "pmid": "{pmid}",
-    "titolo_it": "...",
-    "sintesi": "...",
-    "rilevanza": "...",
-    "limite": "...",
-    "tipo": "conferma"
-  }}
-]""".replace("@@TIPI@@", DEFINIZIONI_TIPO).replace("@@ENDPOINT@@", REGOLE_ENDPOINT)
-
-# ── [NUOVO] REVISORE INDIPENDENTE ─────────────────────────────────────────────
-# Segnaposto: {pmid}, {titolo}, {abstract}, {titolo_it}, {sintesi}, {rilevanza},
-# {limite}, {tipo}.
-PROMPT_REVISORE = """Confronta la SCHEDA in italiano con l'ABSTRACT originale e segnala gli errori.
-
-CONTROLLA, in quest'ordine di importanza:
-A. FEDELTA' (gravità "alta" o "media")
-   - direzione dell'effetto: beneficio presentato come danno o viceversa; differenza
-     non statisticamente significativa presentata come efficacia
-   - endpoint primario confuso con un endpoint secondario, di sottogruppo o post hoc;
-     endpoint primario non raggiunto che non viene dichiarato per primo
-   - popolazione, setting o criteri di inclusione diversi dall'abstract (adulti/
-     pediatrici, PS/terapia intensiva/pre-ospedaliero, gravità)
-   - numeri: valori, intervalli di confidenza, p, numerosità, dosi, unità diversi
-     dall'abstract, oppure numeri che nell'abstract non esistono
-   - informazioni, cause o conclusioni NON presenti nell'abstract
-   - spin ripreso dalle conclusioni degli autori quando l'endpoint primario non lo regge
-B. BADGE (gravità "media")
-   - "tipo" incoerente con i dati: "cambia-pratica" è ammesso solo per studi
-     randomizzati e meta-analisi; "revisione" solo per sintesi di letteratura
-C. ITALIANO (gravità "bassa", "media" se altera il senso)
-   - accenti sostituiti da apostrofi, falsi amici (severo, evidenza, consistente,
-     eventualmente, attuale per actual), calchi, "significativo" da solo, acronimi
-     non espansi alla prima comparsa, termini che il glossario traduce
-     (adrenalina, noradrenalina, paracetamolo, TC, RM, PS)
-
-NON segnalare preferenze di stile, sinonimi accettabili, scelte di sintesi. Se per un
-punto non sei sicuro, non segnalarlo.
-
-ARTICOLO
-PMID: {pmid}
-Titolo originale: {titolo}
-
-ABSTRACT ORIGINALE:
-{abstract}
-
-SCHEDA DA REVISIONARE:
-titolo_it: {titolo_it}
-sintesi: {sintesi}
-rilevanza: {rilevanza}
-limite: {limite}
-tipo: {tipo}
-
-FORMATO DI RISPOSTA - restituisci SOLO un array JSON valido con UN solo oggetto, senza
-testo prima o dopo, senza blocchi markdown. Se non trovi errori: "esito": "ok" e
-"errori": [].
-
-[
-  {{
-    "pmid": "{pmid}",
-    "esito": "da-correggere",
-    "errori": [
-      {{
-        "categoria": "direzione-effetto",
-        "gravita": "alta",
-        "testo": "frase o parte della scheda in cui compare l'errore",
-        "correzione": "come dovrebbe essere, in base all'abstract"
-      }}
-    ]
-  }}
-]
-
-Categorie ammesse: direzione-effetto, endpoint, popolazione, numero,
-aggiunta-non-supportata, spin, badge, italiano. Gravità ammesse: alta, media, bassa."""
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # PATH FILE
