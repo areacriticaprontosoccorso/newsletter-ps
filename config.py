@@ -3,14 +3,26 @@ EM Weekly Digest — Configurazione centralizzata
 Pronto Soccorso San Giovanni Bosco, Torino
 Tutti i parametri configurabili in un solo posto.
 Le credenziali vere stanno in variabili d'ambiente (secrets GitHub Actions).
+
+COMPATIBILITA': questo file mantiene tutti i nomi usati dalla versione attuale di
+newsletter_rss.py, che quindi funziona anche senza modifiche (e senza il bug di
+scrivi_post_gruppo). Le sezioni marcate [NUOVO] diventano operative solo quando
+newsletter_rss.py le usa; quelle marcate [ATTIVO SUBITO] migliorano già il
+comportamento attuale (prompt, glossario, esempi, limit dei feed).
 """
 import os
+import re
+import json
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # CREDENZIALI E DESTINATARI (letti da variabili d'ambiente — MAI hardcoded)
 # ═══════════════════════════════════════════════════════════════════════════════
 ANTHROPIC_API_KEY  = os.environ.get("ANTHROPIC_API_KEY", "")
 ANTHROPIC_MODEL    = "claude-sonnet-5"
+# [NUOVO] Modello della chiamata di revisione. Per un controllo davvero
+# indipendente conviene un modello diverso da quello che scrive; di default
+# coincide, e la sola indipendenza è il contesto separato.
+ANTHROPIC_MODEL_REVISORE = os.environ.get("ANTHROPIC_MODEL_REVISORE", ANTHROPIC_MODEL)
 GMAIL_USER         = os.environ.get("GMAIL_USER", "")
 # Invio tramite OAuth2: il token completo (JSON) sta in GMAIL_TOKEN.
 GMAIL_TOKEN        = os.environ.get("GMAIL_TOKEN", "")
@@ -93,7 +105,21 @@ FB_CHIUSURA = """Le sintesi sono generate con supporto di intelligenza artificia
 e vanno verificate prima dell'applicazione clinica.
 
 #MedicinaDUrgenza #ProntoSoccorso #AreaCritica #EBM"""
-NCBI_TOOL          = "em_weekly_digest_torino"  # User-Agent per i feed PubMed
+
+# ── MESSAGGIO PER IL GRUPPO FACEBOOK ──────────────────────────────────────────
+# [CORREZIONE BUG] scrivi_post_gruppo() in newsletter_rss.py legge queste tre
+# costanti, che mancavano: il run terminava con AttributeError (exit code 1)
+# subito dopo la programmazione dei post. Il messaggio va incollato A MANO nel
+# gruppo (le Groups API non esistono più). Segnaposto sostituiti dal codice:
+# {nome}, {settimana}, {anno}, {primo_titolo}, {link}, {pagina}.
+FB_NOME_PAGINA = "Emergency Ultrasound School Turin"
+FB_FILE_GRUPPO = "post_gruppo.txt"
+POST_GRUPPO = """{nome} — Settimana {settimana}/{anno}
+
+Da oggi, un articolo al giorno sulla pagina {pagina}.
+Si parte con: {primo_titolo}
+
+{link}"""
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # RIVISTE TARGET (15)
@@ -111,12 +137,16 @@ NCBI_TOOL          = "em_weekly_digest_torino"  # User-Agent per i feed PubMed
 # riempimento di riserva): non entra nel prompt di filtro, non tocca il taglio
 # dei candidati e non riordina mai il digest finale, che resta in ordine di
 # rilevanza deciso dal modello.
+#
+# "limit": finestra del feed RSS (PubMed accetta 15/20/50/100). [ATTIVO SUBITO]
+# Nel run del 05/10 NEJM, Lancet, JAMA e BMJ riempivano TUTTI e 20 gli slot con
+# articoli degli ultimi 7 giorni: il feed era troncato e gli altri si perdevano.
 # ═══════════════════════════════════════════════════════════════════════════════
 RIVISTE = [
-    {"nome": "New England Journal of Medicine", "nlmta": "N Engl J Med",       "issn": "0028-4793", "gruppo": "gen",   "fascia": 5},
-    {"nome": "The Lancet",                      "nlmta": "Lancet",             "issn": "0140-6736", "gruppo": "gen",   "fascia": 5},
-    {"nome": "JAMA",                            "nlmta": "JAMA",               "issn": "0098-7484", "gruppo": "gen",   "fascia": 5},
-    {"nome": "BMJ",                             "nlmta": "BMJ",                "issn": "0959-8138", "gruppo": "gen",   "fascia": 5},
+    {"nome": "New England Journal of Medicine", "nlmta": "N Engl J Med",       "issn": "0028-4793", "gruppo": "gen",   "fascia": 5, "limit": 100},
+    {"nome": "The Lancet",                      "nlmta": "Lancet",             "issn": "0140-6736", "gruppo": "gen",   "fascia": 5, "limit": 100},
+    {"nome": "JAMA",                            "nlmta": "JAMA",               "issn": "0098-7484", "gruppo": "gen",   "fascia": 5, "limit": 100},
+    {"nome": "BMJ",                             "nlmta": "BMJ",                "issn": "0959-8138", "gruppo": "gen",   "fascia": 5, "limit": 100},
     {"nome": "Circulation",                     "nlmta": "Circulation",        "issn": "0009-7322", "gruppo": "spec",  "fascia": 4},
     {"nome": "Chest",                           "nlmta": "Chest",              "issn": "0012-3692", "gruppo": "spec",  "fascia": 3},
     {"nome": "Annals of Emergency Medicine",    "nlmta": "Ann Emerg Med",      "issn": "0196-0644", "gruppo": "em",    "fascia": 3},
@@ -153,12 +183,56 @@ MAX_CANDIDATI_PROMPT = 150  # tetto di candidati inviati al filtro (protegge i t
 # NB: NON reintrodurre il parametro "temperature": è deprecato per questo modello
 # e l'API risponde 400 (verificato sul run del 03/08/2026).
 MAX_TOKENS_FILTRO          = 800
-MAX_TOKENS_SINTESI_MULTI   = 4000
-MAX_TOKENS_SINTESI_SINGOLA = 800
+MAX_TOKENS_SINTESI_MULTI   = 4500
+MAX_TOKENS_SINTESI_SINGOLA = 1000
 
 # Finestra RSS per rivista: PubMed accetta 15/20/50/100. Le riviste ad alto volume
-# vanno alzate, altrimenti 20 item non coprono 7 giorni e si perdono articoli.
+# vanno alzate (campo "limit" in RIVISTE), altrimenti 20 item non coprono 7 giorni.
 RSS_LIMIT_DEFAULT = 20
+
+# ── [NUOVO] Filtro in due passaggi ────────────────────────────────────────────
+# 1° passaggio (screening): TUTTI i candidati con abstract compattato (inizio +
+#   conclusioni) -> ARTICOLI_SCREENING finalisti. Leggero, tollera falsi positivi.
+# 2° passaggio (graduatoria): solo i finalisti, con l'abstract quasi intero
+#   (risultati compresi) e il ragionamento attivo -> ARTICOLI_RICHIESTI in ordine.
+#   Il 2° passaggio usa PROMPT_FILTRO_RILEVANZA, lo stesso del passaggio unico.
+FILTRO_DUE_PASSAGGI      = True
+ARTICOLI_SCREENING       = 20
+MAX_CANDIDATI_SCREENING  = 250   # oltre, il taglio avviene per disegno (PRIORITA_DISEGNO)
+ABSTRACT_MAX_SCREENING   = 450   # compatta_abstract(): ~40% inizio + ~60% fine
+ABSTRACT_MAX_FILTRO_FINALE = 2500
+FILTRO_FINALE_THINKING   = True  # nel 2° passaggio NON inviare {"thinking": disabled}
+MAX_TOKENS_SCREENING     = 2000
+MAX_TOKENS_FILTRO_FINALE = 6000  # include lo spazio per il ragionamento
+
+# ── [NUOVO] Sintesi: una chiamata per articolo, in due fasi + revisione ──────
+SINTESI_PER_ARTICOLO     = True   # una chiamata per articolo, non una per tutti
+SINTESI_DUE_FASI         = True   # fase 1 estrazione strutturata, fase 2 redazione
+TITOLO_TRADOTTO          = True   # il campo "titolo_it" compare sopra l'originale
+MAX_TOKENS_ESTRAZIONE    = 1500
+MAX_TOKENS_REDAZIONE     = 1500
+MAX_TOKENS_REVISORE      = 1500
+
+# ── [NUOVO] Revisore indipendente ─────────────────────────────────────────────
+# Seconda chiamata che confronta la sintesi con l'abstract originale. NON riscrive:
+# segnala errori; se ce ne sono di gravità bloccante, il redattore riscrive con le
+# correzioni come feedback. Gravità: "alta" = altera il significato clinico,
+# "media" = impreciso ma non fuorviante, "bassa" = stile.
+REVISORE_ABILITATO        = True
+REVISORE_GRAVITA_BLOCCANTE = {"alta", "media"}
+REVISORE_MAX_TENTATIVI    = 2      # cicli riscrittura+revisione dopo la prima bozza
+# Cosa fare se dopo i tentativi restano errori bloccanti: "scarta" toglie
+# l'articolo dal digest (subentra la riserva); "pubblica" lo lascia e lo logga.
+REVISORE_SE_FALLISCE      = "scarta"
+
+# ── [NUOVO] Archivio settimanale per la revisione ─────────────────────────────
+# Selezione + estrazione + sintesi + esito di lint e revisore, in un JSON per
+# settimana: il workflow lo carica come artifact (aggiungere "archivio/" al path
+# dello step upload-artifact). Con qualche settimana accumulata si costruisce un
+# set di riferimento per tarare i prompt.
+ARCHIVIO_ABILITATO = True
+ARCHIVIO_DIR       = "archivio"
+ARCHIVIO_FILE      = "digest-s{settimana}-{anno}.json"
 
 # Classificazione dell'articolo -> badge nell'email. Le chiavi sono i soli valori
 # accettati dal parser: qualunque altro valore viene scartato.
@@ -173,6 +247,22 @@ TIPI_ARTICOLO = {
 # Frase fissa richiesta al modello quando l'abstract non permette di giudicare:
 # essendo fissa, in build_html si può decidere di non stampare la riga.
 LIMITE_NON_DESUMIBILE = "Limiti non desumibili dall'abstract."
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# [NUOVO] RICERCA DIRETTA SU PUBMED (ESearch) — alternativa/confronto con l'RSS
+# ═══════════════════════════════════════════════════════════════════════════════
+# L'RSS restituisce una finestra fissa per rivista e ha già dato feed vuoti o
+# troncati. ESearch interroga PubMed per data di inserimento (edat) sulle sole
+# riviste target ed esclude i pubtype indesiderati nella query stessa.
+#   "off"        = solo RSS (comportamento attuale)
+#   "confronto"  = si usa l'RSS ma si esegue anche ESearch e si LOGGA, rivista per
+#                  rivista, cosa l'RSS ha perso: ideale per le prime settimane
+#   "sostituisci"= i PMID vengono da ESearch; metadati e abstract da efetch
+ESEARCH_MODO     = "confronto"
+ESEARCH_URL      = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+ESEARCH_DATETYPE = "edat"   # data di inserimento in Entrez: "last 7 days"[edat]
+ESEARCH_RETMAX   = 500
+ESEARCH_TIMEOUT  = 30
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # PRE-FILTRO DETERMINISTICO
@@ -198,10 +288,12 @@ ESCLUSIONI_TITOLO = [
 ABSTRACT_MIN_CHARS = 120
 
 # Troncatura degli abstract passati al modello.
-# Al FILTRO basta l'inizio: conta il quesito e il disegno, e la lista è lunga.
-# Alla SINTESI serve tutto: con gli abstract completi di efetch, 2000 caratteri
-# mutilavano i trial maggiori (ICECAP è stato sintetizzato su un testo troncato,
-# e il modello lo ha segnalato come limite). 6000 copre ogni abstract PubMed.
+# Al FILTRO (passaggio unico) basta l'inizio: conta il quesito e il disegno, e la
+# lista è lunga. Col filtro a due passaggi vedi invece ABSTRACT_MAX_SCREENING e
+# ABSTRACT_MAX_FILTRO_FINALE. Alla SINTESI serve tutto: con gli abstract completi
+# di efetch, 2000 caratteri mutilavano i trial maggiori (ICECAP è stato
+# sintetizzato su un testo troncato, e il modello lo ha segnalato come limite).
+# 6000 copre ogni abstract PubMed.
 ABSTRACT_MAX_FILTRO  = 700
 ABSTRACT_MAX_SINTESI = 6000
 
@@ -215,7 +307,7 @@ EFETCH_URL     = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 EFETCH_BATCH   = 200   # PMID per richiesta (POST, nessun limite di lunghezza URL)
 EFETCH_TIMEOUT = 30
 EFETCH_RETRY   = 2     # tentativi aggiuntivi prima di degradare sulla description RSS
-NCBI_TOOL      = "newsletter-ps"
+NCBI_TOOL      = "newsletter-ps"   # User-Agent per i feed PubMed e per le E-utilities
 NCBI_EMAIL     = ""    # opzionale: NCBI chiede un contatto per usi automatizzati
 
 # PublicationType da escludere. Etichette ufficiali PubMed: esatte, non euristiche.
@@ -258,6 +350,246 @@ COLOR_DARK      = "#1a1a1a"
 # URL PUBBLICO del logo (vuoto = nessun logo). Deve puntare a un file immagine
 # raggiungibile pubblicamente (le email non supportano immagini locali/base64).
 LOGO_URL        = "https://raw.githubusercontent.com/areacriticaprontosoccorso/newsletter-ps/main/logo.jpg"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# [NUOVO] DISEGNO DELLO STUDIO — riconoscimento dal testo
+# ═══════════════════════════════════════════════════════════════════════════════
+# Il PublicationType "Randomized Controlled Trial" viene assegnato spesso settimane
+# dopo la pubblicazione: sugli articoli freschi c'è solo "Journal Article". Il
+# disegno si deduce quindi anche da titolo + abstract. Precedenza: 1) PublicationType
+# se esatto (PUBTYPE_A_DISEGNO); 2) prima regola del testo che combacia, NELL'ORDINE
+# QUI SOTTO. L'ordine conta: "randomized" compare anche in "meta-analysis of
+# randomized trials", in "Mendelian randomization" e in "target trial emulation",
+# che vanno quindi riconosciuti PRIMA del trial randomizzato.
+DISEGNO_NON_DETERMINATO = "non-determinato"
+
+DISEGNI = [
+    ("linea-guida", [
+        r"\bguidelines?\b", r"\bconsensus (?:statement|recommendations?|document)\b",
+        r"\bposition statement\b", r"\bexpert (?:consensus|panel)\b", r"\bdelphi\b",
+    ]),
+    ("protocollo", [
+        r"\bstudy protocol\b", r"\btrial protocol\b", r"\bprotocol for (?:a|the)\b",
+        r"\bstatistical analysis plan\b", r"\bwill be randomi[sz]ed\b",
+    ]),
+    ("mendeliano", [r"\bmendelian randomi[sz]ation\b"]),
+    ("meta-analisi", [
+        r"\bmeta-?analy(?:sis|ses|tic)\b", r"\bpooled analysis\b",
+    ]),
+    ("revisione-sistematica", [r"\bsystematic review\b", r"\bscoping review\b"]),
+    ("revisione-narrativa", [
+        r"\bnarrative review\b", r"\bthis (?:narrative )?review\b",
+        r"\bstate[- ]of[- ]the[- ]art\b",
+    ]),
+    # Solo se l'analisi è DICHIARATA come derivata da un altro studio ("post hoc
+    # analysis of the X trial"). Un RCT primario che riporta un sottogruppo post hoc
+    # ("in a post hoc analysis of patients with...") NON deve finire qui, altrimenti
+    # perderebbe il badge: la classe [\w\- ] non attraversa "/", ",", "(" e simili.
+    ("analisi-secondaria", [
+        r"\bsecondary analysis of\b",
+        r"\bpost[- ]hoc analysis of (?:the |a |an )?[\w\- ]{0,60}?\b(?:trials?|studies|study|RCTs?)\b",
+        r"\bancillary (?:study|analysis)\b", r"\bsub-?analysis\b", r"\bsub-?study\b",
+    ]),
+    ("rct", [
+        r"\brandomi[sz]ed\b", r"\brandomly (?:assigned|allocated)\b",
+        r"\brandomi[sz]ation\b", r"\bnon-?inferiority trial\b",
+    ]),
+    ("emulazione-trial", [r"\btarget trial emulation\b", r"\bemulat(?:e|ed|ing) a (?:target )?trial\b"]),
+    ("modello-predittivo", [
+        r"\b(?:derivation|validation) (?:cohort|set)\b", r"\bprediction (?:model|rule)\b",
+        r"\bmachine[- ]learning\b", r"\bdeep learning\b", r"\bclinical decision rule\b",
+    ]),
+    ("accuratezza-diagnostica", [
+        r"\bdiagnostic accuracy\b", r"\bsensitivity and specificity\b",
+        r"\bnegative predictive value\b", r"\barea under the (?:receiver|curve)\b",
+        r"\bauroc\b", r"\bauc\b",
+    ]),
+    ("propensity", [
+        r"\bpropensity\b", r"\binverse probability (?:of treatment )?weight",
+        r"\binstrumental variable\b", r"\bregression discontinuity\b",
+        r"\bdifference-in-differences\b",
+    ]),
+    ("coorte", [
+        r"\bcohort\b", r"\bregistry\b", r"\bregister-based\b", r"\bobservational study\b",
+    ]),
+    ("caso-controllo", [r"\bcase-control\b"]),
+    ("trasversale", [r"\bcross-sectional\b", r"\bsurvey\b", r"\bquestionnaire\b"]),
+    ("qualita-organizzativo", [
+        r"\bquality improvement\b", r"\bbefore-and-after\b",
+        r"\binterrupted time series\b", r"\bimplementation (?:study|trial)\b",
+    ]),
+]
+
+# PublicationType esatti che determinano il disegno. L'ordine è la precedenza:
+# se un record ha sia Meta-Analysis sia Systematic Review vince la metanalisi.
+PUBTYPE_A_DISEGNO = {
+    "Meta-Analysis":                 "meta-analisi",
+    "Systematic Review":             "revisione-sistematica",
+    "Practice Guideline":            "linea-guida",
+    "Guideline":                     "linea-guida",
+    "Randomized Controlled Trial":   "rct",
+    "Review":                        "revisione-narrativa",
+}
+
+ETICHETTA_DISEGNO = {
+    "linea-guida": "linea guida / consenso", "protocollo": "protocollo",
+    "mendeliano": "randomizzazione mendeliana", "meta-analisi": "meta-analisi",
+    "revisione-sistematica": "revisione sistematica",
+    "revisione-narrativa": "revisione narrativa",
+    "analisi-secondaria": "analisi secondaria/post hoc",
+    "rct": "studio randomizzato", "emulazione-trial": "emulazione di trial",
+    "modello-predittivo": "modello predittivo", "accuratezza-diagnostica": "accuratezza diagnostica",
+    "propensity": "osservazionale con propensity/aggiustamento", "coorte": "coorte/registro",
+    "caso-controllo": "caso-controllo", "trasversale": "trasversale/survey",
+    "qualita-organizzativo": "qualità/organizzativo", DISEGNO_NON_DETERMINATO: "non determinato",
+}
+
+# Protocolli di studio: non hanno risultati, vanno scartati prima del filtro.
+DISEGNI_DA_ESCLUDERE = {"protocollo"}
+
+# Il badge "cambia-pratica" è consentito SOLO a questi disegni. Per gli altri,
+# riconosciuti ma non abilitati, declassa_badge() porta il badge a
+# BADGE_DECLASSATO. Se il disegno è "non-determinato" il badge non si tocca.
+BADGE_CAMBIA_PRATICA_DISEGNI = {"rct", "meta-analisi"}
+BADGE_DECLASSATO = "esplorativo"
+
+# Ordine di priorità per il taglio dei candidati quando superano
+# MAX_CANDIDATI_SCREENING: prima i disegni più solidi, non i più recenti.
+PRIORITA_DISEGNO = {
+    "rct": 0, "meta-analisi": 1, "linea-guida": 2, "revisione-sistematica": 3,
+    "analisi-secondaria": 4, "modello-predittivo": 5, "accuratezza-diagnostica": 5,
+    "propensity": 6, "emulazione-trial": 6, "coorte": 7, "caso-controllo": 8,
+    "trasversale": 9, "qualita-organizzativo": 9, "revisione-narrativa": 8,
+    "mendeliano": 9, DISEGNO_NON_DETERMINATO: 7, "protocollo": 99,
+}
+
+# Riga di ciascun candidato nei prompt di screening e di graduatoria.
+FORMATO_CANDIDATO = (
+    "PMID: {pmid}\n"
+    "RIVISTA: {rivista} ({data})\n"
+    "AREA: {area}\n"
+    "TIPO: {tipo}\n"
+    "DISEGNO: {disegno}\n"
+    "TITOLO: {titolo}\n"
+    "ABSTRACT: {abstract}"
+)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# [ATTIVO SUBITO] VOCABOLARIO CHIUSO DEI TEMI CLINICI
+# ═══════════════════════════════════════════════════════════════════════════════
+# Con temi liberi "sepsi" e "shock settico" valevano due temi e il vincolo
+# MAX_PER_TEMA veniva aggirato. Il modello deve scegliere da questa lista; il
+# codice può normalizzare qualunque valore fuori lista in TEMA_FALLBACK.
+TEMI = [
+    "sepsi-e-shock-settico", "shock-ed-emodinamica", "arresto-cardiaco-e-rianimazione",
+    "sindrome-coronarica-acuta", "scompenso-cardiaco-acuto", "aritmie-e-fibrillazione-atriale",
+    "sincope", "embolia-polmonare-e-tev", "ipertensione-e-aorta",
+    "ictus-ischemico", "emorragia-intracranica", "trauma-cranico",
+    "trauma-maggiore-ed-emorragia", "insufficienza-respiratoria-e-ventilazione",
+    "vie-aeree-e-intubazione", "polmonite-e-infezioni-respiratorie", "bpco-e-asma",
+    "infezioni-non-respiratorie", "anticoagulanti-ed-emostasi", "emorragia-digestiva",
+    "addome-acuto-e-chirurgia-urgente", "rene-ed-elettroliti", "diabete-e-disturbi-metabolici",
+    "intossicazioni-e-overdose", "anafilassi-e-allergia", "crisi-epilettiche",
+    "delirium-e-agitazione", "sedazione-e-analgesia", "geriatria-e-fragilita",
+    "ecografia-point-of-care", "imaging-e-diagnostica", "biomarcatori-e-score-di-rischio",
+    "intelligenza-artificiale-e-modelli-predittivi", "organizzazione-triage-e-sovraffollamento",
+    "emergenze-ambientali", "gravidanza-e-ostetricia", "altro",
+]
+TEMA_FALLBACK = "altro"
+# "altro" non è un tema clinico: non deve contare per il tetto MAX_PER_TEMA.
+TEMI_NON_VINCOLATI = {"altro"}
+_ELENCO_TEMI = ", ".join(TEMI)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# [NUOVO] CONTROLLI DETERMINISTICI SULLA SINTESI (lint) — costo zero
+# ═══════════════════════════════════════════════════════════════════════════════
+# Se controlla_lint() restituisce problemi, la sintesi viene riscritta passando i
+# problemi come feedback, al massimo LINT_MAX_TENTATIVI volte; poi si prosegue e
+# si logga. I pattern sono volutamente severi: un falso positivo costa una
+# riscrittura, un falso negativo costa un errore in una newsletter clinica.
+LINT_ABILITATO        = True
+LINT_MAX_TENTATIVI    = 2
+LINT_PAROLE_SINTESI   = (90, 120)   # intervallo ammesso, estremi inclusi
+LINT_MAX_PAROLE_RILEVANZA = 30
+LINT_MAX_PAROLE_LIMITE    = 25
+
+# Verifica dei numeri: ogni numero con almeno NUMERI_MIN_CIFRE cifre (o con
+# decimali) presente nella sintesi deve comparire nell'abstract. NUMERI_AMMESSI
+# sono i numeri che il testo può usare senza che compaiano (es. "IC al 95%").
+NUMERI_VERIFICA     = True
+NUMERI_MIN_CIFRE    = 2
+NUMERI_AMMESSI      = {"95"}
+
+_ACCENTATE = (
+    "qualita|mortalita|morbilita|attivita|possibilita|probabilita|severita|"
+    "disponibilita|capacita|complessita|sensibilita|specificita|variabilita|"
+    "funzionalita|tossicita|velocita|comorbilita|fragilita|difficolta|opportunita|"
+    "validita|utilita|gravita|novita|eterogeneita|generalizzabilita"
+)
+LINT_REGEX = [
+    (r"\b(?!po\b)[A-Za-zÀ-ÿ]+'(?=\s|[.,;:)]|$)",
+     "apostrofo al posto dell'accento (e', piu', qualita'...)"),
+    (r"\b(?:piu|perche|poiche|affinche|cosi|gia|puo|cioe|nonche|benche|finche)\b",
+     "accento mancante"),
+    (r"\b(?:" + _ACCENTATE + r")\b", "accento mancante sulla vocale finale"),
+    (r"\bsever[oaie]\b", "falso amico: severe = grave"),
+    (r"\bevidenz[ae]\b", "falso amico: evidence = prove/evidenze"),
+    (r"\bconsistent[ei]\b", "falso amico: consistent = coerente/costante"),
+    (r"\beventualmente\b", "falso amico: eventually = infine"),
+    (r"\bcompliance\b", "usa 'aderenza'"),
+    (r"\bpre(?:isto|sto)spedalier\w*", "refuso: si scrive 'preospedaliero'"),
+    (r"(?<!statisticamente )(?<!clinicamente )\bsignificativ(?:o|a|i|e|amente)\b",
+     "'significativo' da solo: usa 'statisticamente significativo' o 'clinicamente rilevante'"),
+    (r"\b(?:epinephrine|norepinephrine|acetaminophen|emergency department|ICU)\b",
+     "termine inglese: usa il glossario (adrenalina, noradrenalina, paracetamolo, PS, terapia intensiva)"),
+    (r"\b(?:CT|MRI)\b", "sigla inglese: usa TC / RM"),
+    (r"dipartimento di emergenza", "usa 'Pronto Soccorso (PS)'"),
+]
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# [ATTIVO SUBITO] GLOSSARIO FARMACI, SIGLE E TERMINI
+# ═══════════════════════════════════════════════════════════════════════════════
+# Forma italiana da usare sempre. Finisce nel system prompt di sintesi/redazione.
+GLOSSARIO = {
+    # farmaci
+    "epinephrine": "adrenalina", "norepinephrine": "noradrenalina",
+    "acetaminophen": "paracetamolo", "heparin": "eparina",
+    "low-molecular-weight heparin (LMWH)": "eparina a basso peso molecolare (EBPM)",
+    "direct oral anticoagulants (DOAC)": "anticoagulanti orali diretti (DOAC)",
+    "vasopressors": "vasopressori", "vasopressin": "vasopressina",
+    "crystalloids / balanced crystalloids": "cristalloidi / cristalloidi bilanciati",
+    "saline": "soluzione fisiologica", "tranexamic acid": "acido tranexamico",
+    "succinylcholine": "succinilcolina", "ketamine": "ketamina",
+    "dexamethasone": "desametasone", "hydrocortisone": "idrocortisone",
+    "oxygen": "ossigeno", "alteplase / tenecteplase": "alteplase / tenecteplase",
+    # sigle e luoghi
+    "emergency department (ED)": "Pronto Soccorso (PS), mai 'dipartimento di emergenza'",
+    "intensive care unit (ICU)": "terapia intensiva",
+    "CT": "TC", "CT angiography": "angio-TC", "MRI": "RM",
+    "point-of-care ultrasound (POCUS)": "ecografia point-of-care (POCUS)",
+    "OHCA": "arresto cardiaco extraospedaliero (OHCA)",
+    "IHCA": "arresto cardiaco intraospedaliero (IHCA)",
+    "ROSC": "ritorno della circolazione spontanea (ROSC)",
+    "cardiopulmonary resuscitation (CPR)": "rianimazione cardiopolmonare (RCP)",
+    "noninvasive ventilation (NIV)": "ventilazione non invasiva (NIV)",
+    "high-flow nasal oxygen (HFNO/HFNC)": "ossigenoterapia ad alti flussi (HFNO)",
+    "rapid sequence intubation (RSI)": "intubazione a sequenza rapida (RSI)",
+    "mechanical ventilation": "ventilazione meccanica",
+    "ECMO": "ECMO (ossigenazione extracorporea a membrana)",
+    # condizioni
+    "atrial fibrillation (AF)": "fibrillazione atriale (FA)",
+    "acute coronary syndrome (ACS)": "sindrome coronarica acuta (SCA)",
+    "pulmonary embolism (PE)": "embolia polmonare (EP)",
+    "venous thromboembolism (VTE)": "tromboembolismo venoso (TEV)",
+    "acute kidney injury (AKI)": "danno renale acuto (AKI)",
+    "diabetic ketoacidosis (DKA)": "chetoacidosi diabetica (DKA)",
+    "traumatic brain injury (TBI)": "trauma cranico",
+    "GI bleeding": "emorragia digestiva", "chest pain": "dolore toracico",
+    "dyspnea": "dispnea", "length of stay": "durata della degenza",
+    "in-hospital mortality": "mortalità intraospedaliera",
+    "30-day mortality": "mortalità a 30 giorni",
+}
+_TESTO_GLOSSARIO = "\n".join(f"  {en} -> {it}" for en, it in GLOSSARIO.items())
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # PROMPT CLAUDE
@@ -313,6 +645,9 @@ esista in ospedale non rende l'argomento pertinente.
 
 Privilegia inoltre gli interventi con farmaci in commercio in Italia."""
 
+# ── PROMPT DI SELEZIONE ───────────────────────────────────────────────────────
+# Passaggio unico (comportamento attuale) e 2° passaggio del filtro a due fasi.
+# Segnaposto: {n}, {n_finali}, {articoli}. L'elenco dei temi è inserito qui.
 PROMPT_FILTRO_RILEVANZA = """COMPITO: dalla lista di articoli candidati, restituisci una GRADUATORIA di {n} articoli,
 quelli con il maggior impatto sulla pratica clinica quotidiana in Pronto Soccorso,
 Medicina d'Urgenza e Terapia Intensiva.
@@ -325,8 +660,12 @@ CRITERI DI SELEZIONE, in ordine di priorità decrescente:
    ottimo ma su una decisione che non passa dal PS va scartato, non promosso.
 3. QUALITA' METODOLOGICA - trial randomizzati, meta-analisi e revisioni sistematiche
    prima di studi osservazionali; numerosità adeguata; endpoint clinici anziché surrogati.
-   Il campo TIPO di ogni candidato riporta i PublicationType ufficiali di PubMed:
-   usalo come indizio diretto del disegno dello studio.
+   Il campo TIPO riporta i PublicationType ufficiali di PubMed, ma sugli articoli
+   appena usciti spesso c'è solo "Journal Article". Il campo DISEGNO, se presente,
+   è il disegno riconosciuto dal testo dell'abstract: usali insieme come indizio
+   del disegno e, se sono entrambi poco informativi, giudica dall'abstract.
+   Guarda i RISULTATI e le CONCLUSIONI: un trial con endpoint primario non
+   raggiunto che nelle conclusioni valorizza un sottogruppo non è un trial positivo.
 4. NOVITA' - a parità di tutto il resto, preferisci ciò che cambia o ribalta una
    pratica consolidata rispetto a ciò che conferma quanto già noto.
 
@@ -337,6 +676,11 @@ VINCOLI DI COMPOSIZIONE:
   le riviste specialistiche pubblicano molto di più e tendono a monopolizzare la
   selezione, ma il lettore è un medico d'urgenza.
 - Preferisci una selezione che copra aree cliniche diverse.
+
+VOCABOLARIO DEI TEMI: il campo "tema" DEVE essere copiato esattamente da questa
+lista chiusa. Usa "altro" solo se nessun tema è adatto. Non inventare sinonimi né
+varianti: due articoli sullo stesso argomento devono avere lo stesso tema.
+@@TEMI@@
 
 ESCLUDI:
 - Case report e case series.
@@ -360,17 +704,51 @@ senza blocchi markdown. Scegli esclusivamente PMID presenti nella lista qui sopr
 non inventare né modificare PMID.
 
 [
-  {{"pmid": "12345678", "tema": "sepsi", "perche": "motivo in max 15 parole"}},
-  {{"pmid": "23456789", "tema": "trauma cranico", "perche": "..."}}
+  {{"pmid": "12345678", "tema": "sepsi-e-shock-settico", "perche": "motivo in max 15 parole"}},
+  {{"pmid": "23456789", "tema": "trauma-cranico", "perche": "..."}}
 ]
 
-Ordina dal più rilevante al meno rilevante."""
+Ordina dal più rilevante al meno rilevante.""".replace("@@TEMI@@", _ELENCO_TEMI)
+
+# [NUOVO] 1° passaggio del filtro a due fasi. Segnaposto: {n}, {articoli}.
+PROMPT_SCREENING = """COMPITO: SCREENING. Dalla lista di articoli candidati scegli i {n} che meritano una
+valutazione approfondita per il digest settimanale. Non devi ordinarli: in un secondo
+passaggio verranno riletti con l'abstract completo e ordinati.
+
+In questo passaggio un falso positivo costa poco, mentre un articolo importante
+scartato qui non si recupera più: nel dubbio, includi. Non escludere un articolo
+pertinente solo perché la rivista è meno prestigiosa.
+
+Tieni un articolo se la decisione descritta appartiene al medico d'urgenza nelle
+prime ore (secondo il contesto del lettore) e se può cambiare triage, diagnosi,
+terapia o destinazione del paziente. Scarta in particolare: case report, ricerca
+preclinica, studi organizzativi su sistemi extraeuropei, decisioni che si prendono
+dopo il ricovero in reparto o in terapia intensiva, chirurgia e oncologia elettive.
+A parità di pertinenza preferisci i disegni più solidi (DISEGNO e TIPO) e le
+conclusioni che poggiano sull'endpoint primario.
+
+Evita che una sola area sia schiacciante: non più di 3 articoli sullo stesso tema.
+Il campo "tema" va copiato esattamente da questa lista chiusa, "altro" solo se nulla
+è adatto:
+@@TEMI@@
+
+ARTICOLI CANDIDATI:
+{articoli}
+
+FORMATO DI RISPOSTA - restituisci SOLO un array JSON valido, senza testo prima o dopo,
+senza blocchi markdown, con al massimo {n} voci. Scegli esclusivamente PMID presenti
+nella lista: non inventare né modificare PMID.
+
+[
+  {{"pmid": "12345678", "tema": "sepsi-e-shock-settico"}},
+  {{"pmid": "23456789", "tema": "trauma-cranico"}}
+]""".replace("@@TEMI@@", _ELENCO_TEMI)
 
 # Regole di traduzione condivise. Vivono nel system prompt delle chiamate di sintesi.
 REGOLE_TRADUZIONE = """REGOLE DI TRADUZIONE (obbligatorie):
 - ORTOGRAFIA: usa gli accenti italiani corretti (è, à, ì, ò, ù, é). Non sostituirli
-  mai con l'apostrofo: si scrive "qualità", non "qualita\'"; "è", non "e\'";
-  "più", non "piu\'"; "perché", non "perche\'".
+  mai con l'apostrofo: si scrive "qualità", non "qualita'"; "è", non "e'";
+  "più", non "piu'"; "perché", non "perche'".
 - ORTOGRAFIA DI TERMINI RICORRENTI, spesso storpiati: si scrive "preospedaliero"
   (non "preistospedaliero" né "prestospedaliero"), "intraospedaliero",
   "extraospedaliero", "endovenoso", "endotracheale", "emogasanalisi".
@@ -389,6 +767,9 @@ REGOLE_TRADUZIONE = """REGOLE DI TRADUZIONE (obbligatorie):
   "blinded"=in cieco; "double-blind"=in doppio cieco; "open-label"=in aperto;
   "primary/secondary endpoint"=endpoint primario/secondario; "number needed to
   treat"=NNT; "confounding"=confondimento; "adherence"=aderenza.
+- GLOSSARIO FARMACI, SIGLE E LUOGHI (usa SEMPRE la forma italiana a destra; le sigle
+  tra parentesi si usano dopo la prima comparsa estesa):
+@@GLOSSARIO@@
 - Lascia in inglese SOLO i termini realmente in uso in clinica italiana: ARDS, shock,
   outcome, endpoint, follow-up, weaning, screening, setting, cut-off, bias,
   propensity score, hazard, washout; usa "basale" per baseline.
@@ -397,12 +778,53 @@ REGOLE_TRADUZIONE = """REGOLE DI TRADUZIONE (obbligatorie):
 - NUMERI: riporta cifre e separatore decimale ESATTAMENTE come nell'originale
   (punto decimale: 0.85; p<0.001). Non convertire il punto in virgola: ogni
   riscrittura di un numero è un'occasione di errore. Non alterare dosi,
-  unità di misura, percentuali.
+  unità di misura, percentuali. Non calcolare nuovi numeri (differenze, percentuali,
+  NNT) che l'abstract non riporta.
 - Mantieni in forma originale le scale validate (GCS, SOFA, qSOFA, NEWS2, CURB-65).
 - Espandi ogni acronimo alla prima comparsa, poi usa la sigla.
 - Non usare mai "significativo" da solo: specifica "statisticamente significativo"
   oppure "clinicamente rilevante".
-- Attieniti SOLO ai dati dell'abstract: non aggiungere, non inferire, non inventare."""
+- Attieniti SOLO ai dati dell'abstract: non aggiungere, non inferire, non inventare.""".replace("@@GLOSSARIO@@", _TESTO_GLOSSARIO)
+
+# Regola contro lo spin, condivisa da tutti i prompt di scrittura.
+REGOLE_ENDPOINT = """REGOLA SULL'ENDPOINT PRIMARIO (obbligatoria, contro lo spin):
+- Individua l'endpoint primario dichiarato dagli autori e il suo esito. Il risultato
+  dell'endpoint primario viene SEMPRE prima di qualsiasi risultato secondario, di
+  sottogruppo o post hoc.
+- Se l'endpoint primario NON è stato raggiunto (differenza non statisticamente
+  significativa, intervallo di confidenza che include l'assenza di effetto,
+  non inferiorità non dimostrata, oppure effetto sfavorevole), la sintesi lo
+  dichiara in modo esplicito entro la seconda frase, con il dato (misura di effetto,
+  intervallo di confidenza, p), con formule come "l'endpoint primario non è stato
+  raggiunto".
+- I risultati secondari, di sottogruppo e post hoc compaiono solo DOPO, presentati
+  come esplorativi o generatori di ipotesi. Non attribuire mai efficacia
+  all'intervento sulla base di essi.
+- Per risultati non statisticamente significativi sono vietati: "tendenza", "trend",
+  "suggerisce un beneficio", "promettente", "mostra un vantaggio", "tende a ridurre".
+- Se le conclusioni degli autori valorizzano un beneficio che l'endpoint primario non
+  supporta, NON riprenderle: riporta ciò che i dati mostrano e segnala nel campo
+  "limite" lo scarto fra endpoint primario e conclusioni.
+- Un risultato positivo sull'endpoint primario si riporta insieme agli eventuali
+  danni o eventi avversi rilevanti."""
+
+# Definizione dei badge, condivisa. Il codice li fa rispettare comunque
+# (forza_tipo_revisione e declassa_badge), qui si riduce il lavoro da correggere.
+DEFINIZIONI_TIPO = """"tipo" - UNO SOLO fra questi valori, riportato esattamente così:
+   "cambia-pratica" = lo studio modifica una condotta oggi diffusa. RISERVATO a studi
+                      randomizzati e meta-analisi (anche con endpoint primario
+                      negativo, se smentiscono una pratica diffusa). Mai per studi
+                      osservazionali, modelli predittivi, analisi post hoc o secondarie.
+   "conferma"       = rafforza una pratica già consolidata
+   "controverso"    = risultati discordanti con evidenze o linee guida attuali
+   "esplorativo"    = ipotesi generatrice, dati preliminari, campione insufficiente,
+                      studio osservazionale con possibile confondimento che propone
+                      un cambiamento
+   "revisione"      = sintesi di letteratura senza dati primari originali: review
+                      narrativa, scoping review, revisione sistematica, linea guida.
+                      Usa SEMPRE questo valore per le sintesi di letteratura, anche
+                      quando le conclusioni sono preliminari: "esplorativo" è
+                      riservato agli studi con dati primari."""
 
 # ── SYSTEM PROMPT ─────────────────────────────────────────────────────────────
 # Persona, contesto e regole stabili vivono qui: sono identici a ogni esecuzione,
@@ -413,21 +835,236 @@ colleghi del tuo reparto.
 
 """ + CONTESTO_PS
 
-SYSTEM_SINTESI = """Sei un medico di Pronto Soccorso italiano, esperto di letteratura
+SYSTEM_SCREENING = SYSTEM_FILTRO   # [NUOVO] stesso ruolo e stesso contesto
+
+# ── ESEMPI DI SINTESI ─────────────────────────────────────────────────────────
+# [ATTIVO SUBITO] Tre sintesi modello per fissare registro, struttura e gestione
+# dell'endpoint primario. ATTENZIONE: i dati degli studi sono FITTIZI, inventati per
+# questo scopo (PMID 00000001-3): non descrivono trial reali. Servono solo a mostrare
+# COME si scrive; le istruzioni dicono al modello di non riutilizzarne i contenuti.
+ESEMPI = [
+    {
+        "abstract_en": (
+            "BACKGROUND: High-flow nasal oxygen (HFNO) is increasingly used in the emergency "
+            "department for acute hypoxaemic respiratory failure, but its effect on intubation is "
+            "uncertain. METHODS: Multicentre, open-label randomised trial in 9 emergency departments. "
+            "Adults with acute hypoxaemic respiratory failure (PaO2/FiO2 <= 200) were randomly assigned "
+            "to HFNO or standard oxygen therapy. The primary outcome was intubation within 7 days. "
+            "RESULTS: 612 patients were randomised (HFNO 306, standard oxygen 306). Intubation within "
+            "7 days occurred in 43 patients (14.1%) in the HFNO group and 50 (16.3%) in the standard "
+            "oxygen group (relative risk 0.86, 95% CI 0.60 to 1.24; P=0.42). Dyspnoea scores at 2 hours "
+            "were lower with HFNO (mean difference -0.8 points, 95% CI -1.3 to -0.3). Mortality at 28 "
+            "days did not differ (9.2% vs 10.1%). In a post hoc analysis of patients with PaO2/FiO2 <= 100, "
+            "intubation was less frequent with HFNO (22% vs 38%). CONCLUSIONS: HFNO did not significantly "
+            "reduce intubation, although it improved dyspnoea and may benefit patients with severe hypoxaemia."
+        ),
+        "estrazione": {
+            "pmid": "00000001", "disegno": "rct",
+            "popolazione": "adulti con insufficienza respiratoria ipossiemica acuta (PaO2/FiO2 <= 200) in PS",
+            "setting": "PS", "n_totale": 612,
+            "intervento": "ossigenoterapia ad alti flussi (HFNO)", "confronto": "ossigenoterapia standard",
+            "endpoint_primario": "intubazione entro 7 giorni",
+            "esito_endpoint_primario": "negativo",
+            "effetto_primario": {"misura": "RR", "valore": "0.86", "ic95": "0.60 to 1.24", "p": "0.42"},
+            "citazione_endpoint": "Intubation within 7 days occurred in 43 patients (14.1%) in the HFNO group and 50 (16.3%) in the standard oxygen group",
+            "risultati_secondari": [
+                {"testo": "dispnea a 2 ore minore con HFNO (differenza media -0.8 punti, IC 95% -1.3 to -0.3)", "prespecificato": None},
+                {"testo": "mortalità a 28 giorni 9.2% vs 10.1%, nessuna differenza", "prespecificato": None},
+                {"testo": "intubazione 22% vs 38% se PaO2/FiO2 <= 100", "prespecificato": False},
+            ],
+            "sicurezza": None,
+            "conclusioni_autori": "HFNO did not significantly reduce intubation, although it improved dyspnoea and may benefit patients with severe hypoxaemia",
+            "spin": {"presente": True, "motivo": "le conclusioni valorizzano un beneficio nei casi gravi che deriva da un sottogruppo post hoc"},
+            "limiti_desumibili": ["studio in aperto", "sottogruppo post hoc"],
+            "abstract_con_risultati": True,
+        },
+        "output": {
+            "pmid": "00000001",
+            "titolo_it": "Ossigenoterapia ad alti flussi o ossigeno standard nell'insufficienza respiratoria ipossiemica acuta in Pronto Soccorso: studio randomizzato",
+            "sintesi": (
+                "Nell'insufficienza respiratoria ipossiemica acuta, l'ossigenoterapia ad alti flussi (HFNO) "
+                "riduce il ricorso all'intubazione? Studio randomizzato multicentrico in aperto in 9 Pronto "
+                "Soccorso (PS): 612 adulti con PaO2/FiO2 <= 200 assegnati a HFNO o a ossigenoterapia "
+                "standard. L'endpoint primario, l'intubazione entro 7 giorni, non è stato raggiunto: "
+                "14.1% con HFNO contro 16.3% con ossigeno standard (rischio relativo 0.86; intervallo di "
+                "confidenza al 95% 0.60-1.24; p=0.42). La dispnea a 2 ore era minore con HFNO e la "
+                "mortalità a 28 giorni non differiva (9.2% contro 10.1%). Il minor ricorso all'intubazione "
+                "con PaO2/FiO2 <= 100 deriva da un'analisi post hoc: va intesa come ipotesi da verificare."
+            ),
+            "rilevanza": "Nel paziente ipossiemico in PS l'HFNO non riduce l'intubazione rispetto all'ossigeno standard: non giustifica un uso sistematico, ma può alleviare la dispnea.",
+            "limite": "Studio in aperto; il beneficio nei casi più gravi proviene solo da un'analisi post hoc.",
+            "tipo": "conferma",
+        },
+    },
+    {
+        "abstract_en": (
+            "BACKGROUND: Diuretic dosing in acute heart failure is usually guided by clinical assessment. "
+            "We tested whether lung-ultrasound-guided therapy improves outcomes. METHODS: In this "
+            "multicentre, randomised, parallel-group trial with blinded outcome assessment, adults admitted "
+            "through the emergency department with acute heart failure were assigned 1:1 to "
+            "lung-ultrasound-guided diuretic therapy or usual care. The primary outcome was a composite of "
+            "all-cause death or heart failure rehospitalisation at 90 days. RESULTS: Among 840 patients "
+            "(mean age 79 years), the primary outcome occurred in 76 of 420 (18.1%) in the ultrasound group "
+            "and 108 of 420 (25.7%) in the usual care group (hazard ratio 0.67, 95% CI 0.50 to 0.90; "
+            "P=0.007). Death at 90 days occurred in 9.5% and 11.9%, respectively (HR 0.78, 95% CI 0.52 to "
+            "1.17). Acute kidney injury was more frequent with ultrasound-guided therapy (14.8% vs 9.8%). "
+            "CONCLUSIONS: Lung-ultrasound-guided diuretic therapy reduced death or rehospitalisation at 90 "
+            "days, at the cost of more acute kidney injury."
+        ),
+        "estrazione": {
+            "pmid": "00000002", "disegno": "rct",
+            "popolazione": "adulti con scompenso cardiaco acuto ricoverati dal PS (età media 79 anni)",
+            "setting": "PS", "n_totale": 840,
+            "intervento": "terapia diuretica guidata dall'ecografia polmonare", "confronto": "trattamento abituale",
+            "endpoint_primario": "composito di morte per qualsiasi causa o riospedalizzazione per scompenso a 90 giorni",
+            "esito_endpoint_primario": "positivo",
+            "effetto_primario": {"misura": "HR", "valore": "0.67", "ic95": "0.50 to 0.90", "p": "0.007"},
+            "citazione_endpoint": "the primary outcome occurred in 76 of 420 (18.1%) in the ultrasound group and 108 of 420 (25.7%) in the usual care group",
+            "risultati_secondari": [
+                {"testo": "morte a 90 giorni 9.5% vs 11.9% (HR 0.78, IC 95% 0.52 to 1.17), nessuna differenza", "prespecificato": None},
+            ],
+            "sicurezza": "danno renale acuto più frequente con la terapia ecoguidata (14.8% vs 9.8%)",
+            "conclusioni_autori": "Lung-ultrasound-guided diuretic therapy reduced death or rehospitalisation at 90 days, at the cost of more acute kidney injury",
+            "spin": {"presente": False, "motivo": ""},
+            "limiti_desumibili": ["valutazione degli esiti in cieco ma non di medici e pazienti"],
+            "abstract_con_risultati": True,
+        },
+        "output": {
+            "pmid": "00000002",
+            "titolo_it": "Terapia diuretica guidata dall'ecografia polmonare nello scompenso cardiaco acuto: studio randomizzato",
+            "sintesi": (
+                "La terapia diuretica guidata dall'ecografia polmonare migliora gli esiti dei pazienti con "
+                "scompenso cardiaco acuto? Studio randomizzato multicentrico, con valutazione degli esiti in "
+                "cieco: 840 adulti (età media 79 anni) ricoverati dal Pronto Soccorso, assegnati 1:1 a terapia "
+                "guidata dall'ecografia polmonare o a trattamento abituale. L'endpoint primario composito, "
+                "morte per qualsiasi causa o riospedalizzazione per scompenso a 90 giorni, si è verificato nel "
+                "18.1% contro il 25.7% (hazard ratio 0.67; intervallo di confidenza al 95% 0.50-0.90; "
+                "p=0.007). La mortalità a 90 giorni non differiva (9.5% contro 11.9%), mentre il danno renale "
+                "acuto è stato più frequente con la strategia ecoguidata (14.8% contro 9.8%)."
+            ),
+            "rilevanza": "Nello scompenso acuto la titolazione dei diuretici con ecografia polmonare riduce morte o riospedalizzazione a 90 giorni: strategia da considerare, con monitoraggio della funzione renale.",
+            "limite": "Medici e pazienti non erano in cieco; la mortalità da sola non differiva e il danno renale acuto è risultato più frequente.",
+            "tipo": "cambia-pratica",
+        },
+    },
+    {
+        "abstract_en": (
+            "BACKGROUND: The optimal timing of antibiotics in patients with suspected sepsis in the "
+            "emergency department is debated. METHODS: Retrospective cohort study of 12,450 adults with "
+            "suspected sepsis presenting to 14 emergency departments between 2019 and 2023. Patients "
+            "receiving antibiotics within 1 hour of arrival were compared with those treated between 1 and "
+            "3 hours using propensity score overlap weighting. The primary outcome was in-hospital "
+            "mortality. RESULTS: Of 12,450 patients, 5,310 (42.7%) received antibiotics within 1 hour. "
+            "In-hospital mortality was 9.8% in the early group and 11.6% in the later group (adjusted odds "
+            "ratio 0.88, 95% CI 0.79 to 0.98). The association was stronger in patients with septic shock "
+            "(adjusted OR 0.79, 95% CI 0.66 to 0.94). CONCLUSIONS: Earlier antibiotic administration was "
+            "associated with lower in-hospital mortality; residual confounding cannot be excluded."
+        ),
+        "estrazione": {
+            "pmid": "00000003", "disegno": "propensity",
+            "popolazione": "adulti con sospetta sepsi in 14 PS",
+            "setting": "PS", "n_totale": 12450,
+            "intervento": "antibiotici entro 1 ora dall'arrivo", "confronto": "antibiotici fra 1 e 3 ore",
+            "endpoint_primario": "mortalità intraospedaliera",
+            "esito_endpoint_primario": "positivo",
+            "effetto_primario": {"misura": "OR aggiustato", "valore": "0.88", "ic95": "0.79 to 0.98", "p": None},
+            "citazione_endpoint": "In-hospital mortality was 9.8% in the early group and 11.6% in the later group",
+            "risultati_secondari": [
+                {"testo": "associazione più marcata nello shock settico (OR aggiustato 0.79, IC 95% 0.66 to 0.94)", "prespecificato": None},
+            ],
+            "sicurezza": None,
+            "conclusioni_autori": "Earlier antibiotic administration was associated with lower in-hospital mortality; residual confounding cannot be excluded",
+            "spin": {"presente": False, "motivo": ""},
+            "limiti_desumibili": ["retrospettivo", "confondimento residuo"],
+            "abstract_con_risultati": True,
+        },
+        "output": {
+            "pmid": "00000003",
+            "titolo_it": "Tempistica della terapia antibiotica nei pazienti con sospetta sepsi in Pronto Soccorso: studio di coorte retrospettivo",
+            "sintesi": (
+                "Nei pazienti con sospetta sepsi in Pronto Soccorso (PS), la somministrazione precoce degli "
+                "antibiotici è associata a una minore mortalità? Studio di coorte retrospettivo in 14 PS: "
+                "12,450 adulti, dei quali 5,310 (42.7%) hanno ricevuto antibiotici entro 1 ora dall'arrivo, "
+                "confrontati con chi li ha ricevuti fra 1 e 3 ore mediante propensity score con pesi di "
+                "sovrapposizione. La mortalità intraospedaliera, endpoint primario, era 9.8% contro 11.6% "
+                "(odds ratio aggiustato 0.88; intervallo di confidenza al 95% 0.79-0.98), con un'associazione "
+                "più marcata nello shock settico (odds ratio aggiustato 0.79; 0.66-0.94). Il dato è "
+                "coerente con la pratica raccomandata, ma un'associazione osservazionale non dimostra causalità."
+            ),
+            "rilevanza": "Conferma il valore della precocità degli antibiotici in PS nella sepsi, soprattutto nello shock settico; non modifica la condotta già raccomandata.",
+            "limite": "Disegno retrospettivo osservazionale: gli autori non escludono un confondimento residuo.",
+            "tipo": "conferma",
+        },
+    },
+]
+
+
+def _json(o):
+    return json.dumps(o, ensure_ascii=False, indent=2)
+
+
+_NOTA_ESEMPI = (
+    "ESEMPI DI SCRITTURA. I dati degli studi negli esempi sono FITTIZI: servono solo a "
+    "mostrare registro, struttura e gestione dell'endpoint primario. Non riutilizzarne "
+    "mai numeri, popolazioni o contenuti: ogni scheda si basa SOLO sull'articolo che ti "
+    "viene fornito."
+)
+
+# Esempi nel formato "abstract -> scheda" (sintesi diretta, prompt storici).
+ESEMPI_DIRETTI = _NOTA_ESEMPI + "\n\n" + "\n\n".join(
+    f"ESEMPIO {i}\nABSTRACT:\n{e['abstract_en']}\n\nRISPOSTA:\n{_json([e['output']])}"
+    for i, e in enumerate(ESEMPI, 1)
+)
+
+# Esempi nel formato "estrazione -> scheda" (fase di redazione).
+ESEMPI_REDAZIONE = _NOTA_ESEMPI + "\n\n" + "\n\n".join(
+    f"ESEMPIO {i}\nESTRAZIONE:\n{_json(e['estrazione'])}\n\nRISPOSTA:\n{_json([e['output']])}"
+    for i, e in enumerate(ESEMPI, 1)
+)
+
+_PERSONA_SINTESI = """Sei un medico di Pronto Soccorso italiano, esperto di letteratura
 scientifica e di traduzione medico-scientifica dall'inglese all'italiano. Scrivi in
 italiano, con linguaggio medico-scientifico preciso, del registro usato nelle riviste
-italiane di area critica.
+italiane di area critica."""
 
-""" + REGOLE_TRADUZIONE
+# [ATTIVO SUBITO] Sintesi diretta (abstract -> scheda), usata dal codice attuale.
+SYSTEM_SINTESI = (
+    _PERSONA_SINTESI + "\n\n" + REGOLE_TRADUZIONE + "\n\n" + ESEMPI_DIRETTI
+)
 
-# ── PROMPT DI SINTESI ─────────────────────────────────────────────────────────
+# [NUOVO] Fase 1 della sintesi: estrazione strutturata. Nessuna prosa.
+SYSTEM_ESTRAZIONE = """Sei un metodologo della ricerca clinica. Estrai dati strutturati dall'abstract di
+un articolo medico, con la massima fedeltà. Non interpreti, non valuti, non completi:
+se un'informazione non è nell'abstract il campo vale null. Riporti i numeri ESATTAMENTE
+come compaiono, con lo stesso separatore decimale. Rispondi solo con JSON valido."""
+
+# [NUOVO] Fase 2: redazione a partire dall'estrazione.
+SYSTEM_REDAZIONE = (
+    _PERSONA_SINTESI + " Scrivi a partire da un'estrazione strutturata dei dati "
+    "dell'abstract, non dall'abstract stesso.\n\n" + REGOLE_TRADUZIONE + "\n\n"
+    + ESEMPI_REDAZIONE
+)
+
+# [NUOVO] Revisore indipendente.
+SYSTEM_REVISORE = """Sei un revisore scientifico severo e indipendente. Ricevi l'abstract originale di
+un articolo e la scheda in italiano scritta da un altro autore. Il tuo unico compito
+è trovare gli errori della scheda rispetto all'abstract. Non la riscrivi, non ne
+migliori lo stile, non dai giudizi di merito sullo studio. Se la scheda è corretta
+dici che è corretta: segnali un errore solo se puoi indicare la frase e il motivo.
+Rispondi solo con JSON valido."""
+
+# ── PROMPT DI SINTESI (compatibili con il codice attuale) ────────────────────
 # Sintesi di TUTTI gli articoli in una sola chiamata API.
+# Segnaposto: {articoli}. [ATTIVO SUBITO] ora con titolo_it e regola sull'endpoint.
 PROMPT_SINTESI_MULTI = """Analizza OGNI articolo della lista e produci per ciascuno
-quattro campi:
+cinque campi:
 
+0. "titolo_it" - traduzione fedele del titolo in italiano: stesso contenuto, nessuna
+   aggiunta, terminologia clinica italiana.
 1. "sintesi" - da 90 a 120 parole, che rispondano nell'ordine a: quesito clinico;
-   disegno dello studio e popolazione, con numerosità; risultato principale con i
-   numeri chiave e la misura di effetto; ricaduta sulla pratica in PS/Area Critica.
+   disegno dello studio e popolazione, con numerosità; risultato dell'endpoint
+   primario con i numeri chiave e la misura di effetto; altri risultati; ricaduta
+   sulla pratica in PS/Area Critica.
 2. "rilevanza" - UNA sola frase, massimo 30 parole, sulla ricaduta pratica concreta.
 3. "limite" - UNA sola frase, massimo 25 parole, sul principale limite metodologico:
    monocentrico, non in cieco, endpoint surrogato, campione ridotto, popolazione
@@ -437,16 +1074,9 @@ quattro campi:
    di valutazione formale della qualità, eterogeneità degli studi inclusi.
    Solo se l'abstract non consente davvero di identificare alcun limite, scrivi
    esattamente: "Limiti non desumibili dall'abstract."
-4. "tipo" - UNO SOLO fra questi valori, riportato esattamente così:
-   "cambia-pratica" = lo studio modifica una condotta oggi diffusa
-   "conferma"       = rafforza una pratica già consolidata
-   "controverso"    = risultati discordanti con evidenze o linee guida attuali
-   "esplorativo"    = ipotesi generatrice, dati preliminari, campione insufficiente
-   "revisione"      = sintesi di letteratura senza dati primari originali: review
-                      narrativa, scoping review, revisione sistematica, linea guida.
-                      Usa SEMPRE questo valore per le sintesi di letteratura, anche
-                      quando le conclusioni sono preliminari: "esplorativo" è
-                      riservato agli studi con dati primari.
+4. @@TIPI@@
+
+@@ENDPOINT@@
 
 SE L'ABSTRACT E' ASSENTE O PRIVO DI RISULTATI NUMERICI: scrivi nella "sintesi" una
 sola frase che lo dichiari esplicitamente, non inferire nulla dal titolo, usa
@@ -462,26 +1092,31 @@ Riporta il "pmid" esattamente come ti è stato fornito.
 [
   {{
     "pmid": "12345678",
+    "titolo_it": "...",
     "sintesi": "...",
     "rilevanza": "...",
     "limite": "...",
     "tipo": "cambia-pratica"
   }}
-]"""
+]""".replace("@@TIPI@@", DEFINIZIONI_TIPO).replace("@@ENDPOINT@@", REGOLE_ENDPOINT)
 
-# Sintesi di un singolo articolo (fallback se dal multi manca qualcosa).
+# Sintesi di un singolo articolo (fallback se dal multi manca qualcosa, e chiamata
+# per articolo quando SINTESI_PER_ARTICOLO è attivo ma SINTESI_DUE_FASI no).
 # Restituisce un array di UN elemento, così da riusare lo stesso parser del multi.
-PROMPT_SINTESI = """Analizza l'articolo e produci quattro campi:
+PROMPT_SINTESI = """Analizza l'articolo e produci cinque campi:
 
+0. "titolo_it" - traduzione fedele del titolo in italiano, senza aggiunte.
 1. "sintesi" - 90-120 parole: quesito clinico; disegno e popolazione con numerosità;
-   risultato principale con i numeri chiave; ricaduta per PS/Area Critica.
+   risultato dell'endpoint primario con i numeri chiave; altri risultati; ricaduta
+   per PS/Area Critica.
 2. "rilevanza" - una sola frase, massimo 30 parole.
 3. "limite" - una sola frase, massimo 25 parole, sul principale limite metodologico.
    Per le revisioni: limite del metodo della revisione (narrativa, selezione non
    riproducibile, eterogeneità degli studi). Solo se davvero non desumibile,
    scrivi esattamente: "Limiti non desumibili dall'abstract."
-4. "tipo" - uno fra: "cambia-pratica", "conferma", "controverso", "esplorativo",
-   "revisione" (quest'ultimo per ogni sintesi di letteratura senza dati primari).
+4. @@TIPI@@
+
+@@ENDPOINT@@
 
 Se l'abstract è assente o privo di risultati numerici, dichiaralo nella "sintesi"
 in una sola frase, non inferire dal titolo, e usa tipo "esplorativo".
@@ -499,18 +1134,325 @@ senza testo prima o dopo, senza blocchi markdown:
 [
   {{
     "pmid": "{pmid}",
+    "titolo_it": "...",
     "sintesi": "...",
     "rilevanza": "...",
     "limite": "...",
     "tipo": "conferma"
   }}
-]"""
+]""".replace("@@TIPI@@", DEFINIZIONI_TIPO).replace("@@ENDPOINT@@", REGOLE_ENDPOINT)
+
+# ── [NUOVO] FASE 1: ESTRAZIONE ────────────────────────────────────────────────
+# Segnaposto: {pmid}, {titolo}, {rivista}, {data}, {pubtypes}, {abstract}.
+# Restituisce un array di UN oggetto. Il codice può verificare che
+# "citazione_endpoint" sia davvero una sottostringa dell'abstract: se non lo è,
+# l'estrazione è inventata e va rifatta.
+PROMPT_ESTRAZIONE = """Estrai dall'abstract i dati strutturati qui sotto. Usa SOLO ciò che c'è scritto: se un
+dato manca, il campo vale null. Non calcolare, non dedurre, non tradurre i numeri.
+I campi testuali brevi possono essere in italiano; "citazione_endpoint" e
+"conclusioni_autori" devono essere citazioni LETTERALI dell'abstract in inglese
+(copiate carattere per carattere, massimo 40 parole ciascuna).
+
+DEFINIZIONI:
+- "disegno": uno fra @@DISEGNI@@ (usa "non-determinato" se non è chiaro).
+- "esito_endpoint_primario":
+    "positivo"           = l'endpoint primario dichiarato è stato raggiunto (differenza
+                           statisticamente significativa nella direzione attesa, o non
+                           inferiorità dimostrata; per gli studi osservazionali,
+                           associazione statisticamente significativa sull'esito principale)
+    "negativo"           = endpoint primario NON raggiunto (nessuna differenza
+                           statisticamente significativa, IC che include l'assenza di
+                           effetto, non inferiorità non dimostrata) oppure effetto sfavorevole
+    "non-riportato"      = l'abstract non dà il risultato dell'endpoint primario
+    "non-applicabile"    = lo studio non ha un endpoint primario (revisioni, linee guida,
+                           accuratezza diagnostica, modelli)
+- "spin": presente = true SOLO se le conclusioni degli autori enfatizzano un beneficio
+  non supportato dall'endpoint primario (sottogruppi, endpoint secondari, post hoc,
+  "tendenza", "potrebbe" dopo un risultato non statisticamente significativo).
+- "prespecificato" dei risultati secondari: true / false / null (se non indicato).
+- "abstract_con_risultati": false se l'abstract non contiene risultati numerici.
+
+ARTICOLO:
+PMID: {pmid}
+Titolo: {titolo}
+Rivista: {rivista} ({data})
+PublicationType PubMed: {pubtypes}
+Abstract: {abstract}
+
+FORMATO DI RISPOSTA - restituisci SOLO un array JSON valido con UN solo oggetto, senza
+testo prima o dopo, senza blocchi markdown:
+
+[
+  {{
+    "pmid": "{pmid}",
+    "disegno": "rct",
+    "popolazione": "...",
+    "setting": "...",
+    "n_totale": 0,
+    "intervento": "...",
+    "confronto": "...",
+    "endpoint_primario": "...",
+    "esito_endpoint_primario": "negativo",
+    "effetto_primario": {{"misura": "RR", "valore": "...", "ic95": "...", "p": "..."}},
+    "citazione_endpoint": "...",
+    "risultati_secondari": [{{"testo": "...", "prespecificato": null}}],
+    "sicurezza": null,
+    "conclusioni_autori": "...",
+    "spin": {{"presente": false, "motivo": ""}},
+    "limiti_desumibili": ["..."],
+    "abstract_con_risultati": true
+  }}
+]""".replace("@@DISEGNI@@", ", ".join(f'"{k}"' for k, _ in DISEGNI))
+
+# ── [NUOVO] FASE 2: REDAZIONE ─────────────────────────────────────────────────
+# Segnaposto: {pmid}, {titolo}, {rivista}, {data}, {estrazione}, {feedback}.
+# {feedback} vale "(nessuna)" alla prima stesura; nelle riscritture contiene i
+# problemi trovati dal lint e dal revisore, uno per riga.
+PROMPT_REDAZIONE = """Scrivi in italiano la scheda dell'articolo usando ESCLUSIVAMENTE i dati
+dell'ESTRAZIONE qui sotto. Non aggiungere informazioni, non dedurre, non calcolare
+nuovi numeri. Riporta i numeri esattamente come sono nell'estrazione.
+
+CAMPI da produrre:
+0. "titolo_it" - traduzione fedele del titolo originale, senza aggiunte.
+1. "sintesi" - da 90 a 120 parole, nell'ordine: quesito clinico; disegno, popolazione
+   e numerosità; risultato dell'endpoint primario con la misura di effetto; altri
+   risultati e sicurezza; ricaduta sulla pratica in PS/Area Critica.
+2. "rilevanza" - UNA sola frase, massimo 30 parole, sulla ricaduta pratica concreta.
+3. "limite" - UNA sola frase, massimo 25 parole. Parti da "limiti_desumibili"; se
+   "spin.presente" è true, indica lo scarto fra endpoint primario e conclusioni degli
+   autori. Solo se non c'è davvero alcun limite identificabile, scrivi esattamente:
+   "Limiti non desumibili dall'abstract."
+4. @@TIPI@@
+
+@@ENDPOINT@@
+
+Se "abstract_con_risultati" è false: la "sintesi" è una sola frase che dichiara che
+l'abstract non riporta risultati, il tipo è "esplorativo".
+Se "esito_endpoint_primario" è "non-riportato", dillo esplicitamente.
+
+CORREZIONI RICHIESTE DAI CONTROLLI PRECEDENTI (applicale tutte; se vale
+"(nessuna)" è la prima stesura):
+{feedback}
+
+ARTICOLO:
+PMID: {pmid}
+Titolo originale: {titolo}
+Rivista: {rivista} ({data})
+
+ESTRAZIONE:
+{estrazione}
+
+FORMATO DI RISPOSTA - restituisci SOLO un array JSON valido con UN solo oggetto, senza
+testo prima o dopo, senza blocchi markdown:
+
+[
+  {{
+    "pmid": "{pmid}",
+    "titolo_it": "...",
+    "sintesi": "...",
+    "rilevanza": "...",
+    "limite": "...",
+    "tipo": "conferma"
+  }}
+]""".replace("@@TIPI@@", DEFINIZIONI_TIPO).replace("@@ENDPOINT@@", REGOLE_ENDPOINT)
+
+# ── [NUOVO] REVISORE INDIPENDENTE ─────────────────────────────────────────────
+# Segnaposto: {pmid}, {titolo}, {abstract}, {titolo_it}, {sintesi}, {rilevanza},
+# {limite}, {tipo}.
+PROMPT_REVISORE = """Confronta la SCHEDA in italiano con l'ABSTRACT originale e segnala gli errori.
+
+CONTROLLA, in quest'ordine di importanza:
+A. FEDELTA' (gravità "alta" o "media")
+   - direzione dell'effetto: beneficio presentato come danno o viceversa; differenza
+     non statisticamente significativa presentata come efficacia
+   - endpoint primario confuso con un endpoint secondario, di sottogruppo o post hoc;
+     endpoint primario non raggiunto che non viene dichiarato per primo
+   - popolazione, setting o criteri di inclusione diversi dall'abstract (adulti/
+     pediatrici, PS/terapia intensiva/pre-ospedaliero, gravità)
+   - numeri: valori, intervalli di confidenza, p, numerosità, dosi, unità diversi
+     dall'abstract, oppure numeri che nell'abstract non esistono
+   - informazioni, cause o conclusioni NON presenti nell'abstract
+   - spin ripreso dalle conclusioni degli autori quando l'endpoint primario non lo regge
+B. BADGE (gravità "media")
+   - "tipo" incoerente con i dati: "cambia-pratica" è ammesso solo per studi
+     randomizzati e meta-analisi; "revisione" solo per sintesi di letteratura
+C. ITALIANO (gravità "bassa", "media" se altera il senso)
+   - accenti sostituiti da apostrofi, falsi amici (severo, evidenza, consistente,
+     eventualmente, attuale per actual), calchi, "significativo" da solo, acronimi
+     non espansi alla prima comparsa, termini che il glossario traduce
+     (adrenalina, noradrenalina, paracetamolo, TC, RM, PS)
+
+NON segnalare preferenze di stile, sinonimi accettabili, scelte di sintesi. Se per un
+punto non sei sicuro, non segnalarlo.
+
+ARTICOLO
+PMID: {pmid}
+Titolo originale: {titolo}
+
+ABSTRACT ORIGINALE:
+{abstract}
+
+SCHEDA DA REVISIONARE:
+titolo_it: {titolo_it}
+sintesi: {sintesi}
+rilevanza: {rilevanza}
+limite: {limite}
+tipo: {tipo}
+
+FORMATO DI RISPOSTA - restituisci SOLO un array JSON valido con UN solo oggetto, senza
+testo prima o dopo, senza blocchi markdown. Se non trovi errori: "esito": "ok" e
+"errori": [].
+
+[
+  {{
+    "pmid": "{pmid}",
+    "esito": "da-correggere",
+    "errori": [
+      {{
+        "categoria": "direzione-effetto",
+        "gravita": "alta",
+        "testo": "frase o parte della scheda in cui compare l'errore",
+        "correzione": "come dovrebbe essere, in base all'abstract"
+      }}
+    ]
+  }}
+]
+
+Categorie ammesse: direzione-effetto, endpoint, popolazione, numero,
+aggiunta-non-supportata, spin, badge, italiano. Gravità ammesse: alta, media, bassa."""
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # PATH FILE
 # ═══════════════════════════════════════════════════════════════════════════════
 DIR_BASE = os.path.dirname(os.path.abspath(__file__))
 LOG_FILE = os.path.join(DIR_BASE, "newsletter.log")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# [NUOVO] FUNZIONI DI SUPPORTO — pure, senza rete né file
+# ═══════════════════════════════════════════════════════════════════════════════
+_DISEGNI_RE = [
+    (chiave, [re.compile(p, re.IGNORECASE) for p in pattern])
+    for chiave, pattern in DISEGNI
+]
+_LINT_RE = [(re.compile(p, re.IGNORECASE), msg) for p, msg in LINT_REGEX]
+_RE_NUMERO = re.compile(r"\d+(?:[.,]\d+)*")
+
+
+def rileva_disegno(titolo="", abstract="", pubtypes=None):
+    """Restituisce (chiave_disegno, fonte) con fonte in {"pubtype","testo","n/d"}.
+    Il PublicationType esatto ha la precedenza; altrimenti vale la prima regola del
+    testo che combacia, nell'ordine di DISEGNI."""
+    presenti = set(pubtypes or [])
+    for tipo, chiave in PUBTYPE_A_DISEGNO.items():
+        if tipo in presenti:
+            return chiave, "pubtype"
+    testo = f"{titolo or ''}. {abstract or ''}"
+    for chiave, regole in _DISEGNI_RE:
+        if any(r.search(testo) for r in regole):
+            return chiave, "testo"
+    return DISEGNO_NON_DETERMINATO, "n/d"
+
+
+def declassa_badge(tipo, disegno):
+    """'cambia-pratica' solo per RCT e meta-analisi. Con un disegno riconosciuto ma
+    non abilitato il badge diventa BADGE_DECLASSATO; con disegno non determinato non
+    si tocca nulla (meglio un badge non verificabile che uno punito a torto)."""
+    if (tipo == "cambia-pratica"
+            and disegno != DISEGNO_NON_DETERMINATO
+            and disegno not in BADGE_CAMBIA_PRATICA_DISEGNI):
+        return BADGE_DECLASSATO
+    return tipo
+
+
+def normalizza_tema(tema):
+    """Riporta a TEMA_FALLBACK ogni tema fuori dal vocabolario chiuso."""
+    t = (tema or "").strip().lower()
+    return t if t in TEMI else TEMA_FALLBACK
+
+
+def compatta_abstract(testo, massimo):
+    """Accorcia un abstract tenendo l'inizio (quesito, disegno) e soprattutto la fine
+    (risultati e conclusioni), che una semplice troncatura da sinistra perde."""
+    testo = (testo or "").strip()
+    if len(testo) <= massimo:
+        return testo
+    testa = int(massimo * 0.4)
+    coda = massimo - testa - 5
+    return f"{testo[:testa].rstrip()} [...] {testo[-coda:].lstrip()}"
+
+
+def parametri_esearch(giorni=None):
+    """Parametri (da inviare in POST) per cercare in PubMed gli articoli delle riviste
+    target inseriti negli ultimi `giorni`, con i pubtype indesiderati esclusi nella
+    query stessa. Si interroga per abbreviazione NLM ([ta]), che evita i problemi di
+    ISSN/eISSN delle riviste solo online."""
+    giorni = giorni or GIORNI_RICERCA
+    riviste = " OR ".join(f'"{r["nlmta"]}"[ta]' for r in RIVISTE)
+    esclusi = " OR ".join(f'"{t}"[pt]' for t in sorted(PUBTYPE_ESCLUSI))
+    parametri = {
+        "db": "pubmed",
+        "term": f"({riviste}) NOT ({esclusi})",
+        "datetype": ESEARCH_DATETYPE,
+        "reldate": str(giorni),
+        "retmax": str(ESEARCH_RETMAX),
+        "retmode": "json",
+        "tool": NCBI_TOOL,
+    }
+    if NCBI_EMAIL:
+        parametri["email"] = NCBI_EMAIL
+    return parametri
+
+
+def _canon_numero(tok):
+    # "12,450" (migliaia all'inglese) -> "12450"; "0,5" o "0.5" -> "0.5"
+    if re.fullmatch(r"\d{1,3}(?:,\d{3})+", tok):
+        return tok.replace(",", "")
+    return tok.replace(",", ".")
+
+
+def numeri_non_verificati(testo, abstract):
+    """Numeri della sintesi (con decimali o almeno NUMERI_MIN_CIFRE cifre) che non
+    compaiono nell'abstract. I numeri in NUMERI_AMMESSI sono esenti."""
+    nell_abstract = {_canon_numero(t) for t in _RE_NUMERO.findall(abstract or "")}
+    mancanti = []
+    for tok in _RE_NUMERO.findall(testo or ""):
+        c = _canon_numero(tok)
+        if c in NUMERI_AMMESSI or c in nell_abstract:
+            continue
+        if "." not in c and len(c) < NUMERI_MIN_CIFRE:
+            continue
+        if c not in mancanti:
+            mancanti.append(c)
+    return mancanti
+
+
+def controlla_lint(sintesi, rilevanza="", limite="", abstract=""):
+    """Elenco dei problemi deterministici di una scheda (vuoto = tutto a posto).
+    I messaggi sono scritti per essere passati così come sono al redattore."""
+    problemi = []
+    n = len((sintesi or "").split())
+    lo, hi = LINT_PAROLE_SINTESI
+    if n < lo or n > hi:
+        problemi.append(f"la sintesi ha {n} parole: deve averne da {lo} a {hi}")
+    if len((rilevanza or "").split()) > LINT_MAX_PAROLE_RILEVANZA:
+        problemi.append(f"la rilevanza supera {LINT_MAX_PAROLE_RILEVANZA} parole")
+    if len((limite or "").split()) > LINT_MAX_PAROLE_LIMITE:
+        problemi.append(f"il limite supera {LINT_MAX_PAROLE_LIMITE} parole")
+    for campo, testo in (("sintesi", sintesi), ("rilevanza", rilevanza), ("limite", limite)):
+        for rx, msg in _LINT_RE:
+            for m in rx.finditer(testo or ""):
+                p = f'{campo}: "{m.group(0)}" - {msg}'
+                if p not in problemi:
+                    problemi.append(p)
+    if NUMERI_VERIFICA and abstract:
+        dubbi = numeri_non_verificati(f"{sintesi} {rilevanza} {limite}", abstract)
+        if dubbi:
+            problemi.append(
+                "numeri non presenti nell'abstract (riportali come nell'originale o "
+                "eliminali): " + ", ".join(dubbi)
+            )
+    return problemi
 
 
 def valida_config():
