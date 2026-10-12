@@ -148,7 +148,7 @@ RIVISTE = [
     {"nome": "JAMA",                            "nlmta": "JAMA",               "issn": "0098-7484", "gruppo": "gen",   "fascia": 5, "limit": 100},
     {"nome": "BMJ",                             "nlmta": "BMJ",                "issn": "0959-8138", "gruppo": "gen",   "fascia": 5, "limit": 100},
     {"nome": "Circulation",                     "nlmta": "Circulation",        "issn": "0009-7322", "gruppo": "spec",  "fascia": 4},
-    {"nome": "Chest",                           "nlmta": "Chest",              "issn": "0012-3692", "gruppo": "spec",  "fascia": 3},
+    {"nome": "Chest",                           "nlmta": "Chest",              "issn": "0012-3692", "gruppo": "spec",  "fascia": 3, "limit": 100},
     {"nome": "Annals of Emergency Medicine",    "nlmta": "Ann Emerg Med",      "issn": "0196-0644", "gruppo": "em",    "fascia": 3},
     {"nome": "Critical Care Medicine",          "nlmta": "Crit Care Med",      "issn": "0090-3493", "gruppo": "spec",  "fascia": 3},
     {"nome": "Intensive Care Medicine",         "nlmta": "Intensive Care Med", "issn": "0342-4642", "gruppo": "spec",  "fascia": 4},
@@ -201,7 +201,7 @@ ARTICOLI_SCREENING       = 20
 MAX_CANDIDATI_SCREENING  = 250   # oltre, il taglio avviene per disegno (PRIORITA_DISEGNO)
 ABSTRACT_MAX_SCREENING   = 450   # compatta_abstract(): ~40% inizio + ~60% fine
 ABSTRACT_MAX_FILTRO_FINALE = 2500
-FILTRO_FINALE_THINKING   = True  # nel 2° passaggio NON inviare {"thinking": disabled}
+FILTRO_FINALE_THINKING   = False  # True = 2° passaggio con ragionamento (nel dry run del 12/10 ha esaurito i token e ripiegato: se lo riattivi alza MAX_TOKENS_FILTRO_FINALE a 16000)
 MAX_TOKENS_SCREENING     = 2000
 MAX_TOKENS_FILTRO_FINALE = 6000  # include lo spazio per il ragionamento
 
@@ -1064,7 +1064,8 @@ _DISEGNI_RE = [
     for chiave, pattern in DISEGNI
 ]
 _LINT_RE = [(re.compile(p, re.IGNORECASE), msg) for p, msg in LINT_REGEX]
-_RE_NUMERO = re.compile(r"\d+(?:[.,]\d+)*")
+# Il Lancet scrive i decimali con il punto in alto ("1·28"): va trattato come ".".
+_RE_NUMERO = re.compile(r"\d+(?:[.,\u00b7\u2219\u22c5]\d+)*")
 
 
 def rileva_disegno(titolo="", abstract="", pubtypes=None):
@@ -1136,7 +1137,7 @@ def _canon_numero(tok):
     # "12,450" (migliaia all'inglese) -> "12450"; "0,5" o "0.5" -> "0.5"
     if re.fullmatch(r"\d{1,3}(?:,\d{3})+", tok):
         return tok.replace(",", "")
-    return tok.replace(",", ".")
+    return re.sub("[,\u00b7\u2219\u22c5]", ".", tok)
 
 
 def numeri_non_verificati(testo, abstract):

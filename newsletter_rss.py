@@ -633,7 +633,9 @@ def chiama_claude(prompt, max_tokens=1500, system=None, thinking=False, model=No
             blocchi = data.get("content", [])
             testo = next((b.get("text", "") for b in blocchi if b.get("type") == "text"), "")
             if not testo:
-                raise RuntimeError(f"Nessun blocco di testo nella risposta API: {str(data)[:300]}")
+                raise RuntimeError(
+                    f"Nessun blocco di testo nella risposta API (stop_reason={data.get('stop_reason')}, "
+                    f"blocchi={[b.get('type') for b in blocchi]}, token_out={uso.get('output_tokens')})")
             return testo.strip()
         except urllib.error.HTTPError as e:
             body = e.read().decode("utf-8")
@@ -773,7 +775,7 @@ def graduatoria_finale(pool, usa_finale):
     log.info(
         f"Claude ordina {len(pool)} candidati -> {cfg.ARTICOLI_RICHIESTI} in "
         f"graduatoria, {cfg.ARTICOLI_FINALI} pubblicati "
-        f"({'2° passaggio, ragionamento attivo' if thinking else 'passaggio unico'})"
+        f"({'2° passaggio' if usa_finale else 'passaggio unico'}, ragionamento {'attivo' if thinking else 'spento'})"
     )
     if cfg.DRY_RUN:
         log.info("--- CANDIDATI IN GRADUATORIA ---")
