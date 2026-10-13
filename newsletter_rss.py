@@ -60,14 +60,83 @@ def escluso_per_titolo(titolo):
     return any(r.search(t) for r in _RE_ESCLUSI)
 
 
+# Campi ammessi negli oggetti JSON restituiti dal modello (filtro e sintesi).
+# Servono al recupero per oggetto: tenerli allineati con i prompt di config.py.
+_CHIAVI_JSON = ("pmid", "sintesi", "rilevanza", "limite", "tipo",
+                "tema", "categoria", "perche")
+_K = "|".join(_CHIAVI_JSON)
+_RE_INIZIO_OGGETTO = re.compile(r'\{\s*"(?:' + _K + r')"\s*:')
+_RE_CAMPO = re.compile(r'(?:^|[{,]|(?<="))\s*"(' + _K + r')"\s*:\s*')
+
+
+def _ripara_oggetto(blocco):
+    """Ricostruisce un oggetto JSON le cui stringhe contengono virgolette doppie
+    non escapate (es. un nome di trial tra virgolette). Il confine tra un campo e
+    il successivo e' la chiave nota che segue, non la virgoletta."""
+    corpo = blocco.strip()[1:-1]
+    campi = list(_RE_CAMPO.finditer(corpo))
+    if not campi:
+        return None
+    ob = {}
+    for k, m in enumerate(campi):
+        fine = campi[k + 1].start() if k + 1 < len(campi) else len(corpo)
+        valore = corpo[m.end():fine].strip().rstrip(",").rstrip()
+        try:
+            if len(valore) >= 2 and valore[0] == '"' and valore[-1] == '"':
+                interno = re.sub(r'(?<!\\)"', r'\\"', valore[1:-1])
+                ob[m.group(1)] = json.loads('"' + interno + '"', strict=False)
+            else:
+                ob[m.group(1)] = json.loads(valore)
+        except ValueError:
+            return None
+    return ob
+
+
+def _recupera_oggetti(t):
+    """Recupero per oggetto da un array JSON non valido. Gli oggetti troncati
+    (risposta tagliata da max_tokens) vengono scartati: l'articolo mancante
+    verra' rifatto dal fallback singolo, gli altri si salvano."""
+    inizi = [m.start() for m in _RE_INIZIO_OGGETTO.finditer(t)]
+    oggetti = []
+    for i, a in enumerate(inizi):
+        b = inizi[i + 1] if i + 1 < len(inizi) else len(t)
+        blocco = re.sub(r'[\s,\]]+$', '', t[a:b])
+        if not blocco.endswith("}"):
+            continue
+        try:
+            oggetti.append(json.loads(blocco, strict=False))
+        except ValueError:
+            ob = _ripara_oggetto(blocco)
+            if ob:
+                oggetti.append(ob)
+    return oggetti
+
+
 def _estrai_json_array(testo):
-    """Estrae il primo array JSON dalla risposta, tollerando i fence markdown."""
+    """Estrae il primo array JSON dalla risposta, tollerando i fence markdown.
+    Se il JSON non e' valido (tipicamente virgolette doppie non escapate in un
+    testo) non scarta l'intera risposta: logga il punto d'errore e recupera gli
+    oggetti uno per uno, cosi' il fallback singolo scatta solo per quelli davvero
+    irrecuperabili invece che per tutti."""
     t = re.sub(r"^```(?:json)?\s*", "", testo.strip())
     t = re.sub(r"\s*```$", "", t)
     inizio, fine = t.find("["), t.rfind("]")
-    if inizio == -1 or fine == -1 or fine < inizio:
+    if inizio == -1:
         raise ValueError(f"Nessun array JSON nella risposta: {t[:200]}")
-    return json.loads(t[inizio:fine + 1])
+    candidato = t[inizio:fine + 1] if fine > inizio else t[inizio:]
+    try:
+        return json.loads(candidato)
+    except json.JSONDecodeError as e:
+        a = max(0, e.pos - 150)
+        log.warning(
+            f"JSON non valido ({e.msg}, posizione {e.pos} di {len(candidato)}): "
+            f"...{candidato[a:e.pos + 150]!r}..."
+        )
+        recuperati = _recupera_oggetti(t[inizio:])
+        if not recuperati:
+            raise
+        log.warning(f"    recuperati {len(recuperati)} oggetti dalla risposta non valida")
+        return recuperati
 
 
 def numero_settimana():
