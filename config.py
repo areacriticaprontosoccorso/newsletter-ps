@@ -334,7 +334,14 @@ COLOR_ACCENT    = "#c41e3a"  # rosso
 COLOR_DARK      = "#1a1a1a"
 # URL PUBBLICO del logo (vuoto = nessun logo). Deve puntare a un file immagine
 # raggiungibile pubblicamente (le email non supportano immagini locali/base64).
-LOGO_URL        = "https://raw.githubusercontent.com/areacriticaprontosoccorso/newsletter-ps/main/logo.jpg"
+BASE_URL_LOGHI  = "https://raw.githubusercontent.com/areacriticaprontosoccorso/newsletter-ps/main/"
+# Loghi nell'intestazione della mail, affiancati da sinistra a destra.
+LOGHI = [
+    {"url": BASE_URL_LOGHI + "logo-medicina-urgenza.png",
+     "alt": "Medicina d'Emergenza-Urgenza - Pronto Soccorso e Area Critica, Ospedale San Giovanni Bosco"},
+]
+LOGO_ALTEZZA    = 100   # px
+LOGO_URL        = LOGHI[0]["url"]   # compatibilita'
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # [NUOVO] DISEGNO DELLO STUDIO — riconoscimento dal testo
