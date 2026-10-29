@@ -22,7 +22,13 @@ import json
 # CREDENZIALI E DESTINATARI (letti da variabili d'ambiente — MAI hardcoded)
 # ═══════════════════════════════════════════════════════════════════════════════
 ANTHROPIC_API_KEY  = os.environ.get("ANTHROPIC_API_KEY", "")
-ANTHROPIC_MODEL    = "claude-sonnet-5"
+ANTHROPIC_MODEL    = "claude-sonnet-5-5"
+# Come spegnere il ragionamento nelle chiamate che non lo vogliono. Sonnet 5 accetta
+# "disabled"; Sonnet 5.5 potrebbe rifiutarlo (HTTP 400): si scende alla variante
+# successiva. None = non inviare nulla (il ragionamento resta attivo e consuma token:
+# si aggiunge MARGINE_THINKING a max_tokens).
+THINKING_SPENTO_VARIANTI = [{"type": "disabled"}, {"type": "between_tools"}, None]
+MARGINE_THINKING         = 3000
 GMAIL_USER         = os.environ.get("GMAIL_USER", "")
 # Invio tramite OAuth2: il token completo (JSON) sta in GMAIL_TOKEN.
 GMAIL_TOKEN        = os.environ.get("GMAIL_TOKEN", "")

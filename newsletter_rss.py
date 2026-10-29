@@ -655,6 +655,7 @@ def raccogli_candidati(giorni=None):
 
 
 USO_API = {"chiamate": 0, "token_in": 0, "token_out": 0}
+_THINKING_VARIANTE = {"i": 0}   # indice in cfg.THINKING_SPENTO_VARIANTI ritenuto valido
 
 
 def chiama_claude(prompt, max_tokens=1500, system=None, thinking=False, model=None):
@@ -668,18 +669,31 @@ def chiama_claude(prompt, max_tokens=1500, system=None, thinking=False, model=No
         "max_tokens": max_tokens,
         "messages":   messaggi,
     }
-    if not thinking:
-        # Sonnet 5 ha l'adaptive thinking attivo di default: lo disattiviamo,
-        # cosi' la risposta e' solo testo e max_tokens non viene speso in thinking.
-        corpo["thinking"] = {"type": "disabled"}
+    # Sonnet 5 ha l'adaptive thinking attivo di default: lo spegniamo, cosi' la risposta
+    # e' solo testo e max_tokens non viene speso in ragionamento. Sonnet 5.5 potrebbe
+    # rifiutare "disabled" (HTTP 400): in quel caso si provano le varianti di
+    # cfg.THINKING_SPENTO_VARIANTI, e la prima accettata resta valida per tutta la corsa.
     # Con thinking=True la chiave si omette: il ragionamento adattivo resta attivo e
     # max_tokens deve lasciargli spazio (MAX_TOKENS_FILTRO_FINALE).
+
+    def _applica_thinking():
+        corpo.pop("thinking", None)
+        corpo["max_tokens"] = max_tokens
+        if thinking:
+            return
+        v = cfg.THINKING_SPENTO_VARIANTI[_THINKING_VARIANTE["i"]]
+        if v is not None:
+            corpo["thinking"] = v
+        else:
+            # impossibile spegnerlo: il ragionamento consuma token, si lascia margine
+            corpo["max_tokens"] = max_tokens + cfg.MARGINE_THINKING
+    _applica_thinking()
     if system:
         corpo["system"] = system
-    payload = json.dumps(corpo).encode("utf-8")
     # Retry con backoff su rate-limit (429) e errori server transitori (5xx).
     ultimo_errore = None
-    for attempt in range(4):
+    for attempt in range(6):
+        payload = json.dumps(corpo).encode("utf-8")
         req = urllib.request.Request(
             "https://api.anthropic.com/v1/messages",
             data=payload,
@@ -709,16 +723,23 @@ def chiama_claude(prompt, max_tokens=1500, system=None, thinking=False, model=No
         except urllib.error.HTTPError as e:
             body = e.read().decode("utf-8")
             ultimo_errore = f"Anthropic API errore {e.code}: {body[:400]}"
+            if (e.code == 400 and not thinking and "thinking" in body.lower()
+                    and _THINKING_VARIANTE["i"] < len(cfg.THINKING_SPENTO_VARIANTI) - 1):
+                _THINKING_VARIANTE["i"] += 1
+                log.warning(f"Il modello rifiuta thinking={cfg.THINKING_SPENTO_VARIANTI[_THINKING_VARIANTE['i'] - 1]}: "
+                            f"provo {cfg.THINKING_SPENTO_VARIANTI[_THINKING_VARIANTE['i']]}")
+                _applica_thinking()
+                continue
             if e.code == 429 or 500 <= e.code < 600:
                 attesa = 2 ** attempt
-                log.warning(f"{ultimo_errore} — retry tra {attesa}s ({attempt+1}/4)")
+                log.warning(f"{ultimo_errore} — retry tra {attesa}s ({attempt+1}/6)")
                 time.sleep(attesa)
                 continue
             raise RuntimeError(ultimo_errore)
         except urllib.error.URLError as e:
             ultimo_errore = f"Anthropic API errore di rete: {e}"
             attesa = 2 ** attempt
-            log.warning(f"{ultimo_errore} — retry tra {attesa}s ({attempt+1}/4)")
+            log.warning(f"{ultimo_errore} — retry tra {attesa}s ({attempt+1}/6)")
             time.sleep(attesa)
     raise RuntimeError(ultimo_errore or "Anthropic API: fallito dopo i retry")
 
