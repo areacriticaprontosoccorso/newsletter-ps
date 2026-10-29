@@ -292,6 +292,18 @@ def pronuncia_it(t):
     return numeri_in_parole(t)
 
 
+_CIFRE_EN = "zero one two three four five six seven eight nine".split()
+
+
+def _sigla_en(vis):
+    """Sigle maiuscole (GFAP, DOAC, UCH-L1) senza pronuncia indicata: lette lettera per
+    lettera all'inglese. Il modello da solo le storpia ("UCH-L1" diventava "HLN")."""
+    if re.fullmatch(r"[A-Z0-9][A-Z0-9\-]+", vis) and re.search(r"[A-Z]", vis):
+        return " ".join(_CIFRE_EN[int(c)] if c.isdigit() else c
+                        for c in vis.replace("-", ""))
+    return vis
+
+
 def parti_frase(frase):
     """[('it', testo), ('en', testo), ...] pronti per la sintesi.
     La punteggiatura che segue un termine inglese passa al segmento inglese
@@ -309,7 +321,7 @@ def parti_frase(frase):
             parti.append(("it", buf))
         buf = ""
         punt = re.match(r"\s*([,.:;?!]+)", frase[pos:])
-        en = pron or vis
+        en = pron or _sigla_en(vis)
         if punt:
             en += punt.group(1)
             pos += punt.end()
@@ -383,6 +395,25 @@ class Voce:
             pass
         return w.squeeze(0).cpu().numpy().astype(self.np.float32)
 
+    def sintetizza_robusto(self, testo, lingua, seme):
+        """Chatterbox va in errore (max() su tensore vuoto) con i segmenti di una lettera,
+        come la "e" fra GFAP e UCH-L1. Per quelli si raddoppia la lettera; se anche così
+        fallisce e il segmento è di una o due lettere, lo si salta (None: resta una pausa).
+        Per gli altri l'errore si riprova con un altro seme e poi si propaga."""
+        lettere = re.sub(r"[^\wàèéìòù]", "", testo)
+        prove = [f"{lettere} {lettere}"] if len(lettere) == 1 else [testo]
+        ultimo = None
+        for k in range(2):
+            for t in prove:
+                try:
+                    return self.sintetizza(t, lingua, seme + 13 * k)
+                except Exception as e:
+                    ultimo = e
+                    log.warning(f"    sintesi di '{t}' fallita: {e}")
+        if len(lettere) <= 2:
+            return None
+        raise ultimo
+
     def trascrivi(self, a, lingua, parole=False):
         a16 = self.librosa.resample(a, orig_sr=self.sr, target_sr=16000)
         segs, _ = self.stt.transcribe(a16, language=lingua, beam_size=5, word_timestamps=parole)
@@ -446,7 +477,12 @@ class Voce:
         np = self.np
         pezzi, rif = [], None
         for k, (lingua, testo) in enumerate(parti):
-            a = self.rifila(self.sintetizza(testo, lingua, seme + 7 * k))
+            grezzo = self.sintetizza_robusto(testo, lingua, seme + 7 * k)
+            if grezzo is None:          # connettivo di una lettera non sintetizzabile
+                if pezzi:
+                    pezzi.append(0.1)
+                continue
+            a = self.rifila(grezzo)
             if len(_parole(testo)) <= 3:
                 a = self.rifila(self.taglia_coda(a, lingua, testo))
             a = self.livella(a, rif).astype(np.float32)
