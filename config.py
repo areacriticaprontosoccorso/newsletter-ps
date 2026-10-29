@@ -122,6 +122,107 @@ Si parte con: {primo_titolo}
 {link}"""
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# PODCAST SETTIMANALE (podcast.py)
+# ═══════════════════════════════════════════════════════════════════════════════
+# Con PODCAST_ABILITATO il post Facebook del lunedì (primo articolo) non viene
+# programmato da newsletter_rss.py: ne salva i dati in PODCAST_PRIMO_POST e lo
+# pubblica "podcast.py pubblica", con il video del podcast se è pronto oppure,
+# se il podcast è fallito, con la sola immagine come prima. Gli altri quattro
+# post restano invariati. Con False tutto torna esattamente come prima.
+PODCAST_ABILITATO  = os.environ.get("PODCAST", "1").strip().lower() not in ("0", "false", "no")
+PODCAST_DIR        = "podcast"
+PODCAST_PRIMO_POST = os.path.join(PODCAST_DIR, "primo_post.json")
+PODCAST_ESITO      = os.path.join(PODCAST_DIR, "esito.json")
+PODCAST_VOCE_RIF   = "podcast_voce.wav"   # campione di voce (sintetica) da imitare
+
+PODCAST_INTRO = ("Benvenuti! Questa è la newsletter settimanale della Medicina "
+                 "d'Emergenza-Urgenza dell'ospedale San Giovanni Bosco di Torino. "
+                 "{Articoli} articoli, due minuti, sola medicina d'emergenza-urgenza. "
+                 "Buon ascolto!")
+PODCAST_CHIUSURA = "Alla prossima."
+
+# Durata: se il parlato supera PODCAST_DURATA_MAX secondi si accelera fino a
+# PODCAST_ATEMPO_MAX (oltre, la voce si snatura: si pubblica comunque, con avviso).
+PODCAST_DURATA_MAX = 120
+PODCAST_ATEMPO_MAX = 1.10
+# Parole del copione per TUTTI gli articoli insieme (intro e chiusura escluse),
+# riferite a un digest di ARTICOLI_FINALI articoli: con meno articoli i limiti
+# scalano in proporzione. 230 parole + intro = circa due minuti con questa voce.
+# In PODCAST_INTRO, {Articoli} diventa il numero in lettere ("Cinque", "Quattro"...).
+PODCAST_PAROLE_MIN = 200
+PODCAST_PAROLE_MAX = 240
+
+# Verifica della voce: ogni frase viene ritrascritta con Whisper e confrontata
+# col testo; sotto soglia si rigenera (fino a PODCAST_TENTATIVI volte, si tiene
+# la migliore).
+PODCAST_SOGLIA_WHISPER = 0.82
+PODCAST_TENTATIVI      = 3
+PODCAST_WHISPER_MODELLO = os.environ.get("PODCAST_WHISPER", "small")
+
+# Pronuncia: sostituzioni applicate SOLO al testo dato alla sintesi vocale.
+PODCAST_PRONUNCIA_IT = {
+    "Emergenza-Urgenza": "Emergenza  Urgenza",   # col trattino "Urgenza" si fonde
+    "emergenza-urgenza": "emergenza  urgenza",
+    "EM": "I-em",
+    "NIV": "Niv",
+    "PS": "Pronto Soccorso",
+    "OBI": "o-bi-i",
+    "ASL": "a-esse-elle",
+}
+# Parole inglesi brevi dentro una frase italiana: invece di un segmento in voce
+# inglese (che spezzerebbe il ritmo) si usa questa grafia fonetica.
+PODCAST_GRAFIA_FONETICA = {
+    "trial": "tràial",
+    "cluster": "clàster",
+    "stepped-wedge": "stèpd-uèdg",
+    "outcome": "àutcam",
+    "endpoint": "èndpoint",
+    "score": "scòr",
+    "follow-up": "follou-àp",
+    "setting": "sètting",
+    "timing": "tàiming",
+}
+
+# Testo del post unico del lunedì: va sopra la didascalia del primo articolo.
+PODCAST_FB_TESTA = ("Il podcast della settimana: i {n} articoli in due minuti, "
+                    "nel video. Qui sotto il primo articolo.\n\n")
+PODCAST_FB_TITOLO = "EM Weekly Digest — Podcast settimana {settimana}/{anno}"
+
+PODCAST_PROMPT = """Scrivi il copione parlato del podcast settimanale di un Pronto Soccorso: \
+una sola voce, in italiano, tono tecnico per medici d'urgenza. Presenta i {n} articoli \
+qui sotto, nell'ordine dato. Introduzione e saluti li aggiunge il programma: tu scrivi \
+solo i paragrafi degli articoli.
+
+REGOLE
+1. Un paragrafo per articolo. In totale, tutti i paragrafi insieme: fra {min_parole} e \
+{max_parole} parole (circa {per_art} per articolo).
+2. Apri ogni paragrafo con un connettivo d'ordine e la rivista, per esempio: \
+"Si parte da [[Circulation]], ...", "Secondo studio, su ...", "Terzo, su ...", \
+"Quarto, ancora su ...", "Infine, una metanalisi su ...".
+3. Per ogni articolo: disegno dello studio, risultato principale con i numeri chiave, \
+e il limite più importante o il peso dell'evidenza.
+4. NUMERI: usa SOLO numeri presenti nell'abstract o nella sintesi di QUELL'articolo, \
+scritti in cifre (decimali con la virgola, migliaia col punto: 60.000; percentuali col \
+simbolo %). Puoi arrotondare solo premettendo "circa". NON calcolare numeri nuovi: \
+niente differenze, conversioni, rapporti o percentuali derivate.
+5. TERMINI INGLESI: racchiudi fra doppie parentesi quadre OGNI nome di rivista, nome o \
+acronimo di studio e termine tecnico inglese: [[Critical Care Medicine]], \
+[[point-of-care]], [[odds]], [[trial]]. Se la pronuncia inglese non si deduce dalla \
+grafia, aggiungi dopo una barra verticale come si legge: [[ICare-FASTER|Eye-Care Faster]], \
+[[ARDS|A R D S]]. Usa la parola italiana quando esiste ed è d'uso comune \
+(rianimazione, ventilazione non invasiva, esito).
+6. Frasi brevi, adatte all'ascolto: al massimo 30 parole per frase. Niente parentesi, \
+elenchi, virgolette doppie o abbreviazioni da leggere (scrivi "intervallo di \
+confidenza", non "IC"). Le sigle italiane d'uso comune (PS, NIV) vanno bene.
+7. Non aggiungere nulla che non sia negli abstract o nelle sintesi.
+
+Rispondi SOLO con un array JSON, un oggetto per articolo nello stesso ordine:
+[{{"pmid": "...", "testo": "..."}}]
+
+ARTICOLI
+{blocchi}"""
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # RIVISTE TARGET (15)
 # "gruppo": em = medicina d'urgenza | gen = medicina generale | spec = specialistica.
 # Serve al vincolo di composizione: il digest deve contenere almeno

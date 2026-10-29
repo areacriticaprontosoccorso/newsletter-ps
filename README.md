@@ -2,7 +2,7 @@
 
 Newsletter settimanale di medicina d'urgenza per il Pronto Soccorso di San Giovanni Bosco, Torino (Area Critica e Pronto Soccorso, ASL Città di Torino).
 
-Ogni lunedì il sistema interroga i feed PubMed di una lista di riviste, filtra e sintetizza gli articoli più rilevanti per il PS con un modello Claude, e distribuisce il risultato per **email** (Gmail) e su **Facebook** (schede PNG, un post al giorno nei feriali).
+Ogni lunedì il sistema interroga i feed PubMed di una lista di riviste, filtra e sintetizza gli articoli più rilevanti per il PS con un modello Claude, e distribuisce il risultato per **email** (Gmail) e su **Facebook** (schede PNG, un post al giorno nei feriali; il lunedì col video del podcast di due minuti).
 
 ---
 
@@ -16,6 +16,7 @@ Ogni lunedì il sistema interroga i feed PubMed di una lista di riviste, filtra 
    - se un vincolo impone uno scambio, entra la rivista di **fascia** più alta ed esce quella più bassa (vedi *Fasce editoriali*).
 4. **Sintesi** — genera per ogni articolo una sintesi in italiano, la rilevanza per il PS e i limiti dello studio. Assegna il **badge** metodologico (vedi sotto). Se meno di `MINIMO_ARTICOLI` (3) articoli ottengono una sintesi valida, **l'invio viene annullato** (meglio un run fallito e visibile che un digest svuotato).
 5. **Distribuzione** — costruisce l'HTML dell'email, genera le schede PNG con Playwright, invia l'email ai `DESTINATARI` e pubblica su Facebook.
+6. **Podcast** — dopo l'email, `podcast.py` produce un podcast di due minuti e lo pubblica come video nel post Facebook del lunedì (vedi *Podcast settimanale*).
 
 ---
 
@@ -94,6 +95,33 @@ Tutti i parametri stanno in `config.py`. I principali:
 
 ---
 
+## Podcast settimanale (`podcast.py`)
+
+Ogni lunedì, dopo l'email, il workflow produce un podcast di circa **due minuti** (una voce, italiano, riviste e termini inglesi in pronuncia inglese) e lo pubblica su Facebook come **video** nel post del primo articolo.
+
+1. **Copione** — una chiamata a Claude (`PODCAST_PROMPT`) scrive un paragrafo per articolo a partire dall'archivio del digest. Intro e chiusura sono fisse (`PODCAST_INTRO`, `PODCAST_CHIUSURA`).
+2. **Controllo** — ogni numero del copione deve comparire nell'abstract o nella sintesi dello stesso articolo (ammessi arrotondamenti, e scarti piccoli solo dopo "circa", "oltre", "quasi"); lunghezza fra `PODCAST_PAROLE_MIN` e `PODCAST_PAROLE_MAX`, frasi brevi. Se qualcosa non torna Claude riscrive (massimo 3 tentativi), poi il podcast salta.
+3. **Voce** — [Chatterbox](https://github.com/resemble-ai/chatterbox) gira sul runner, senza API. I termini fra `[[...]]` nel copione sono generati in voce inglese e uniti alla frase senza pause; le parole inglesi brevi (`trial`, `cluster`…) usano la grafia fonetica di `PODCAST_GRAFIA_FONETICA`. Il timbro è quello di `podcast_voce.wav` (una voce sintetica, non di una persona).
+4. **Verifica** — ogni frase viene ritrascritta con Whisper e confrontata col testo; sotto `PODCAST_SOGLIA_WHISPER` si rigenera (fino a `PODCAST_TENTATIVI` volte).
+5. **Uscite** — `podcast/podcast-sNN-AAAA.mp3`, il video `.mp4` (copertina + schede degli articoli che scorrono mentre se ne parla), `copione.txt` ed `esito.json` con il punteggio di ogni frase: tutto nell'artifact del run.
+
+**Post del lunedì** — con il podcast attivo, `newsletter_rss.py` programma come sempre i post 2–5 ma **rinvia il primo** (`podcast/primo_post.json`). Lo pubblica `python podcast.py pubblica`, allo stesso orario (`FB_ORA`): video del podcast + didascalia del primo articolo, preceduta da `PODCAST_FB_TESTA`. **Se il podcast non è pronto, il post esce con l'immagine come prima**: il lunedì non resta mai scoperto. Anche il messaggio per il gruppo (`post_gruppo.txt`) viene scritto qui, col link al post.
+
+**Tempi e costi** — circa 20–30 minuti in più per corsa (la prima più lunga: scarica ~3 GB di modelli, poi in cache). Costo API: una chiamata in più a settimana (pochi centesimi; di più solo se il controllo chiede correzioni). I minuti di GitHub Actions su repo pubblico sono gratuiti.
+
+**Disattivarlo** — input `podcast` del *Run workflow* su `false`, oppure `PODCAST_ABILITATO = False` in `config.py`: tutto torna esattamente come prima.
+
+**Prova in locale** con un copione già scritto (salta Claude):
+
+```bash
+pip install torch==2.6.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cpu
+pip install chatterbox-tts==0.1.7 faster-whisper==1.2.1 num2words==0.5.14 pyloudnorm==0.2.0 soundfile "setuptools<81"
+DRY_RUN=1 python podcast.py genera --archivio archivio/digest-s44-2026.json --copione copione.json
+DRY_RUN=1 python podcast.py pubblica     # scrive solo post_facebook_podcast.txt
+```
+
+---
+
 ## Trappole note
 
 - **Token Gmail OAuth scaduto** — se l'app OAuth di Google è in modalità *Testing*, il refresh token scade dopo 7 giorni. Serve pubblicare l'app (o rigenerare il token). È stata la causa di invii falliti in passato.
@@ -102,6 +130,8 @@ Tutti i parametri stanno in `config.py`. I principali:
 - **API Gruppi Facebook deprecata** (aprile 2024) — la pubblicazione nei gruppi è solo manuale. `post_facebook.txt` esiste anche per copiare a mano la didascalia in un gruppo.
 - **Installazione Playwright fragile** — in CI conviene `timeout-minutes` e `continue-on-error` sullo step di install per non bloccare l'invio del lunedì.
 - **`claude-sonnet-5` e `temperature`/prefill** — vedi sopra: HTTP 400 garantito.
+- **Podcast: memoria e tempo** — Chatterbox su CPU usa ~6 GB di RAM e circa 4–8 secondi di calcolo per secondo di audio. Se il passo supera i 50 minuti viene interrotto e il post del lunedì esce con l'immagine.
+- **Podcast: video su Facebook** — il caricamento usa `graph-video.facebook.com` con lo stesso token della Pagina (permesso `pages_manage_posts`). Se Facebook rifiuta il video, il post esce con l'immagine e il log riporta l'errore.
 - **Modello Sonnet** — le versioni delle librerie Google sono pinnate nel workflow apposta: un loro breaking change non deve poter bloccare l'invio.
 
 ---
@@ -113,7 +143,10 @@ Tutti i parametri stanno in `config.py`. I principali:
 | `newsletter_rss.py` | Pipeline completa (raccolta → filtro → sintesi → email/Facebook). |
 | `config.py` | Tutti i parametri: riviste, vincoli, prompt, secrets, branding. |
 | `.github/workflows/newsletter.yml` | Workflow `workflow_dispatch` (chiamato da cron-job.org). |
+| `podcast.py` | Podcast settimanale (copione, voce, video) e post Facebook del lunedì. |
+| `podcast_voce.wav` | Campione della voce del podcast (sintetica). |
 | `logo.jpg` | Logo referenziato da `LOGO_URL` nelle email. |
+| `logo-medicina-urgenza.png` | Logo usato nella copertina del video del podcast. |
 
 ## Fasce editoriali
 

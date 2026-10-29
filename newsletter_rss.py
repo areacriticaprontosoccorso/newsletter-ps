@@ -6,6 +6,7 @@ Pipeline: RSS (+ confronto/sostituzione con ESearch) -> efetch -> pre-filtro
 -> screening -> graduatoria -> sintesi di tutti gli articoli in UNA chiamata
 -> badge e lint -> HTML/PNG/email/Facebook -> archivio.
 3 chiamate API a settimana. I comportamenti si accendono e spengono da config.py.
+Il podcast settimanale e il post Facebook del lunedi' sono in podcast.py.
 
 Comando: python newsletter_rss.py
 """
@@ -1549,14 +1550,45 @@ def testo_post_articolo(a, indice, totale, wl):
     )
 
 
+def salva_primo_post(immagine, art, indice, totale, quando, wl):
+    """Con il podcast attivo il post del primo articolo non si programma qui:
+    se ne salvano i dati e lo pubblica 'podcast.py pubblica' (col video del
+    podcast, o con questa immagine se il podcast non e' pronto)."""
+    os.makedirs(cfg.PODCAST_DIR, exist_ok=True)
+    dati = {
+        "message": testo_post_articolo(art, indice, totale, wl),
+        "immagine": immagine,
+        "quando": quando.isoformat(),
+        "settimana": wl["settimana"],
+        "anno": wl["anno"],
+        "titolo": art["titolo"],
+        "totale": totale,
+    }
+    with open(cfg.PODCAST_PRIMO_POST, "w", encoding="utf-8") as f:
+        json.dump(dati, f, ensure_ascii=False, indent=2)
+    log.info(f"    post 1/{totale} rinviato al podcast "
+             f"({quando.strftime('%a %d/%m %H:%M')}): {cfg.PODCAST_PRIMO_POST}")
+
+
 def pubblica_facebook_programmata(immagini, articoli, wl):
     """Un post per articolo, uno per giorno feriale, tutti creati adesso e
-    programmati. A pubblicarli e' Facebook."""
+    programmati. A pubblicarli e' Facebook. Con il podcast attivo il primo post
+    (lunedi') lo pubblica podcast.py, insieme al video."""
     coppie = list(zip(immagini, articoli))
     slot = prossimi_slot_feriali(len(coppie))
+    podcast = getattr(cfg, "PODCAST_ABILITATO", False)
     ok = 0
     creati = []
     for k, ((percorso, art), quando) in enumerate(zip(coppie, slot), 1):
+        if podcast and k == 1:
+            try:
+                salva_primo_post(percorso, art, k, len(coppie), quando, wl)
+                ok += 1
+                continue
+            except Exception as e:
+                # se non si riesce a rinviarlo, il primo post esce come sempre
+                log.error(f"    rinvio del post 1 al podcast fallito ({e}): lo programmo ora")
+                podcast = False
         try:
             # La foto si carica non pubblicata, poi il post di feed la allega
             # e viene programmato: e' il percorso documentato per lo scheduling.
@@ -1582,8 +1614,10 @@ def pubblica_facebook_programmata(immagini, articoli, wl):
         except Exception as e:
             log.error(f"    post {k} fallito: {e}")
 
-    log.info(f"Facebook: {ok}/{len(coppie)} post programmati")
-    if creati:
+    log.info(f"Facebook: {ok}/{len(coppie)} post programmati"
+             + (" (il primo lo pubblica podcast.py)" if podcast else ""))
+    # Il messaggio per il gruppo linka il primo post: col podcast lo scrive podcast.py.
+    if creati and not podcast:
         try:
             scrivi_post_gruppo(creati[0][0], creati[0][1], wl)
         except Exception as e:
@@ -1795,6 +1829,14 @@ def main():
                     f.write(testo_post_articolo(a, k, len(selezionati), wl))
                     f.write("\n\n")
                 log.info(f"Didascalie Facebook ({len(selezionati)} post) in post_facebook.txt")
+                # Anche in prova il post del lunedi' passa al podcast: cosi'
+                # 'podcast.py pubblica' ne scrive l'anteprima col video.
+                if getattr(cfg, "PODCAST_ABILITATO", False) and immagini and slot:
+                    try:
+                        salva_primo_post(immagini[0], selezionati[0], 1,
+                                         len(selezionati), slot[0], wl)
+                    except Exception as e:
+                        log.warning(f"Post del lunedi' per il podcast non salvato: {e}")
             else:
                 f.write(testo_post_facebook(selezionati, wl))
                 log.info("Didascalia Facebook (post unico) in post_facebook.txt")
