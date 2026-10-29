@@ -179,6 +179,10 @@ def problemi_copione(articoli, testi):
             problemi.append(
                 f"articolo {i}: numeri non presenti nell'abstract o nella sintesi "
                 f"({', '.join(fuori)}): riportali come nella fonte o eliminali")
+        per_max = round(p_max / len(articoli))
+        if conta_parole(t) > per_max + 12:
+            problemi.append(f"articolo {i}: {conta_parole(t)} parole, massimo {per_max}: "
+                            f"tieni un solo risultato e un solo limite")
         lunghe = [f for f in dividi_frasi(testo_visibile(t)) if len(f.split()) > 34]
         if lunghe:
             problemi.append(f"articolo {i}: frase troppo lunga per l'ascolto: '{lunghe[0][:60]}...'")
@@ -213,7 +217,7 @@ def scrivi_copione(articoli, copione_file=None):
     p_min, p_max = limiti_parole(n)
     prompt = cfg.PODCAST_PROMPT.format(
         n=n, min_parole=p_min, max_parole=p_max,
-        per_art=round((p_min + p_max) / 2 / n),
+        per_min=round(p_min / n), per_max=round(p_max / n),
         blocchi="\n".join(_blocco_articolo(i, a) for i, a in enumerate(articoli, 1)),
     )
     aggiunta, problemi = "", []
@@ -232,6 +236,15 @@ def scrivi_copione(articoli, copione_file=None):
         aggiunta = ("\n\nLA TUA VERSIONE PRECEDENTE AVEVA QUESTI PROBLEMI. Riscrivila "
                     "correggendoli e rispettando tutte le regole:\n- " + "\n- ".join(problemi)
                     + "\n\nVERSIONE PRECEDENTE:\n" + risposta)
+    # Ultima rete: se l'unico difetto residuo è la lunghezza e lo sforamento è contenuto
+    # (+20%), meglio un podcast un po' più lungo che nessun podcast. Il video viene
+    # accelerato fino al limite e l'esito.json registra la durata reale.
+    solo_lunghezza = all(("parole, massimo" in x or "troppo lungo" in x) for x in problemi)
+    tot = sum(conta_parole(t) for t in testi if t)
+    if testi and all(testi) and solo_lunghezza and tot <= p_max * 1.2:
+        log.warning(f"Copione accettato oltre il limite ({tot} parole, massimo {p_max}): "
+                    "il podcast durerà più di due minuti")
+        return testi
     raise RuntimeError("Copione non valido dopo 3 tentativi: " + "; ".join(problemi))
 
 

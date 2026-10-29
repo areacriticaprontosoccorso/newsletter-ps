@@ -194,13 +194,16 @@ qui sotto, nell'ordine dato. Introduzione e saluti li aggiunge il programma: tu 
 solo i paragrafi degli articoli.
 
 REGOLE
-1. Un paragrafo per articolo. In totale, tutti i paragrafi insieme: fra {min_parole} e \
-{max_parole} parole (circa {per_art} per articolo).
+1. LUNGHEZZA, il vincolo più importante: il podcast dura due minuti, quindi devi \
+scegliere, non riassumere tutto. Un paragrafo per articolo, da {per_min} a {per_max} \
+parole ciascuno, MAI di più (circa 3 o 4 frasi). Tutti i paragrafi insieme: fra \
+{min_parole} e {max_parole} parole. Conta le parole prima di rispondere.
 2. Apri ogni paragrafo con un connettivo d'ordine e la rivista, per esempio: \
 "Si parte da [[Circulation]], ...", "Secondo studio, su ...", "Terzo, su ...", \
 "Quarto, ancora su ...", "Infine, una metanalisi su ...".
-3. Per ogni articolo: disegno dello studio, risultato principale con i numeri chiave, \
-e il limite più importante o il peso dell'evidenza.
+3. Per ogni articolo: il disegno dello studio in poche parole, UN risultato principale \
+con al massimo due numeri, e il limite più importante o il peso dell'evidenza. \
+Ometti intervalli di confidenza, valori p, analisi secondarie e dettagli di metodo.
 4. NUMERI: usa SOLO numeri presenti nell'abstract o nella sintesi di QUELL'articolo, \
 scritti in cifre (decimali con la virgola, migliaia col punto: 60.000; percentuali col \
 simbolo %). Puoi arrotondare solo premettendo "circa". NON calcolare numeri nuovi: \
