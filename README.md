@@ -86,7 +86,7 @@ Tutti i parametri stanno in `config.py`. I principali:
 - `PUBTYPE_REVISIONE` → badge "revisione" (Review, Systematic Review, Guideline, Consensus…). La *Meta-Analysis* è esclusa apposta: produce stime proprie e può essere "cambia-pratica".
 - `PUBTYPE_PRIORITARI` → segnalati al filtro come indizio di qualità (RCT, Meta-Analysis, Multicenter, Fase III, Practice Guideline).
 
-**Modello** — `ANTHROPIC_MODEL = "claude-sonnet-5"`. ⚠️ Questo modello **rifiuta** il parametro `temperature` e il prefill del turno assistant (HTTP 400): non reintrodurli.
+**Modello** — `ANTHROPIC_MODEL = "claude-sonnet-5-5"`. ⚠️ Questo modello (come Sonnet 5) **rifiuta** il parametro `temperature` e il prefill del turno assistant (HTTP 400): non reintrodurli.
 
 **Facebook** — `FB_API_VERSION` (v21.0), `FB_UN_POST_AL_GIORNO` (True: un articolo per post, non un elenco unico), `FB_ORA` (16), `FB_MINUTO` (0), `FB_GIORNI_FERIALI` (lun–ven), `FB_FUSO` (Europe/Rome). I post vengono programmati sugli slot feriali successivi.
 
@@ -101,7 +101,7 @@ Tutti i parametri stanno in `config.py`. I principali:
 - **ID pagina Facebook via portfolio** — l'ID pagina si ottiene interrogando l'API tramite l'ID del business portfolio, non direttamente.
 - **API Gruppi Facebook deprecata** (aprile 2024) — la pubblicazione nei gruppi è solo manuale. `post_facebook.txt` esiste anche per copiare a mano la didascalia in un gruppo.
 - **Installazione Playwright fragile** — in CI conviene `timeout-minutes` e `continue-on-error` sullo step di install per non bloccare l'invio del lunedì.
-- **`claude-sonnet-5` e `temperature`/prefill** — vedi sopra: HTTP 400 garantito.
+- **`claude-sonnet-5-5` e `temperature`/prefill** — vedi sopra: HTTP 400 garantito. Con Sonnet 5.5 anche `thinking: disabled` può dare 400: `chiama_claude` prova le varianti di `THINKING_SPENTO_VARIANTI` e usa la prima accettata (lo dice il log).
 - **Modello Sonnet** — le versioni delle librerie Google sono pinnate nel workflow apposta: un loro breaking change non deve poter bloccare l'invio.
 
 ---
