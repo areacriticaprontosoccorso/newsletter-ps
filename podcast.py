@@ -368,7 +368,7 @@ class Voce:
         log.info("Caricamento modello vocale (Chatterbox) e Whisper...")
         self.tts = ChatterboxMultilingualTTS.from_pretrained(device="cpu")
         # Il campione di voce si elabora una volta sola, non a ogni frase.
-        self.tts.prepare_conditionals(cfg.PODCAST_VOCE_RIF, exaggeration=0.5)
+        self.tts.prepare_conditionals(cfg.PODCAST_VOCE_RIF, exaggeration=cfg.PODCAST_ESAGERAZIONE)
         self.sr = self.tts.sr
         self.stt = WhisperModel(cfg.PODCAST_WHISPER_MODELLO, device="cpu", compute_type="int8")
         self.meter = pyln.Meter(self.sr)
@@ -378,7 +378,8 @@ class Voce:
         self.torch.manual_seed(seme)
         with self.torch.inference_mode():
             w = self.tts.generate(testo, language_id=lingua,
-                                  exaggeration=0.5, cfg_weight=0.5, temperature=0.7)
+                                  exaggeration=cfg.PODCAST_ESAGERAZIONE,
+                                  cfg_weight=cfg.PODCAST_CFG, temperature=0.7)
         # Chatterbox 0.1.7 aggiunge a ogni chiamata un forward hook (analisi
         # dell'allineamento) e non lo toglie: memoria e tempi crescerebbero frase
         # dopo frase fino a esaurire la RAM. Lo si rimuove qui.

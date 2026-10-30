@@ -141,6 +141,11 @@ PODCAST_INTRO = ("Benvenuti! Questa è la newsletter settimanale della Medicina 
                  "Buon ascolto!")
 PODCAST_CHIUSURA = "Alla prossima."
 
+# Carattere della voce Chatterbox: valori più bassi = intonazione più calma e meno
+# enfatica. 0,35 / 0,3 scelti all'ascolto il 30/10 (prima: 0,5 / 0,5).
+PODCAST_ESAGERAZIONE = 0.35
+PODCAST_CFG          = 0.3
+
 # Durata: se il parlato supera PODCAST_DURATA_MAX secondi si accelera fino a
 # PODCAST_ATEMPO_MAX (oltre, la voce si snatura: si pubblica comunque, con avviso).
 PODCAST_DURATA_MAX = 120
