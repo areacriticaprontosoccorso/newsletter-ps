@@ -1670,6 +1670,24 @@ def scrivi_post_gruppo(primo_id, primo_art, wl, link=None):
     return testo
 
 
+def rinvia_primo_post_al_podcast(immagini, articoli, wl):
+    """Con FB_SCHEDE = False le schede non vanno su Facebook: si prepara solo il post
+    del lunedì, che 'podcast.py pubblica' farà uscire col video del podcast."""
+    if not getattr(cfg, "PODCAST_ABILITATO", False):
+        log.info("Facebook: schede disattivate (FB_SCHEDE) e podcast spento: nessun post")
+        return False
+    slot = prossimi_slot_feriali(1)
+    try:
+        salva_primo_post(immagini[0] if immagini else None, articoli[0], 1,
+                         len(articoli), slot[0], wl)
+    except Exception as e:
+        log.error(f"Post del podcast non preparato: {e}")
+        return False
+    log.info("Facebook: schede non pubblicate (FB_SCHEDE = False); "
+             "il lunedì esce solo il video del podcast")
+    return True
+
+
 def pubblica_facebook(immagini, articoli, wl):
     """Un unico post multi-foto sulla Pagina. Mai bloccante."""
     if not cfg.FB_ABILITATO:
@@ -1677,6 +1695,8 @@ def pubblica_facebook(immagini, articoli, wl):
     if not (cfg.FB_PAGE_ID and cfg.FB_PAGE_TOKEN):
         log.warning("Facebook non configurato (FB_PAGE_ID/FB_PAGE_TOKEN): salto")
         return False
+    if not getattr(cfg, "FB_SCHEDE", True):
+        return rinvia_primo_post_al_podcast(immagini, articoli, wl)
     if not immagini:
         log.warning("Nessuna immagine da pubblicare su Facebook")
         return False
@@ -1933,7 +1953,18 @@ def main():
         # un post al giorno le didascalie sono cinque, una per articolo, non
         # l'elenco unico.
         with open("post_facebook.txt", "w", encoding="utf-8") as f:
-            if cfg.FB_UN_POST_AL_GIORNO:
+            if not getattr(cfg, "FB_SCHEDE", True):
+                f.write("Schede degli articoli NON pubblicate su Facebook (FB_SCHEDE = False).\n"
+                        "Il lunedì esce solo il video del podcast: anteprima in "
+                        "post_facebook_podcast.txt.\n")
+                log.info("Facebook: schede disattivate, solo il post del podcast")
+                if getattr(cfg, "PODCAST_ABILITATO", False):
+                    try:
+                        salva_primo_post(immagini[0] if immagini else None, selezionati[0], 1,
+                                         len(selezionati), prossimi_slot_feriali(1)[0], wl)
+                    except Exception as e:
+                        log.warning(f"Post del lunedi' per il podcast non salvato: {e}")
+            elif cfg.FB_UN_POST_AL_GIORNO:
                 slot = prossimi_slot_feriali(len(selezionati))
                 for k, (a, quando) in enumerate(zip(selezionati, slot), 1):
                     f.write(f"{'=' * 70}\nPOST {k}/{len(selezionati)} — "

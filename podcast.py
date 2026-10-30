@@ -21,12 +21,13 @@ genera   Lo lancia newsletter_rss.py (genera_podcast) prima di inviare la mail,
 
 pubblica Il post Facebook del lunedì, rimandato da newsletter_rss.py: video del
          podcast + didascalia del primo articolo, programmato allo stesso orario.
-         Se il video non c'è (podcast fallito o disattivato) pubblica il post del
-         primo articolo con l'immagine, esattamente come prima. In DRY_RUN scrive
+         Se il video non c'è o Facebook lo rifiuta: con config.FB_SCHEDE = False
+         (impostazione attuale) non esce nulla; con True esce il post del primo
+         articolo con l'immagine. In DRY_RUN scrive
          solo l'anteprima in post_facebook_podcast.txt.
 
 Nessuna delle due fasi blocca la newsletter: se il podcast fallisce o supera
-config.PODCAST_TIMEOUT_MAIL, la mail parte senza podcast e il lunedì esce con l'immagine.
+config.PODCAST_TIMEOUT_MAIL, la mail parte senza podcast e su Facebook non esce il video.
 """
 
 import argparse
@@ -762,7 +763,14 @@ def pubblica():
         log.warning("Orario del post del lunedì troppo vicino o passato: pubblico subito")
         quando = None
 
+    schede = getattr(cfg, "FB_SCHEDE", True)   # False: niente ripiego sull'immagine
     if cfg.DRY_RUN or not cfg.FB_ABILITATO or not (cfg.FB_PAGE_ID and cfg.FB_PAGE_TOKEN):
+        if not video and not schede:
+            with open("post_facebook_podcast.txt", "w", encoding="utf-8") as f:
+                f.write("Podcast non disponibile: con FB_SCHEDE = False il lunedì "
+                        "non uscirebbe nessun post.\n")
+            log.info("Podcast: nessun video e schede disattivate: nessun post (anteprima scritta)")
+            return True
         with open("post_facebook_podcast.txt", "w", encoding="utf-8") as f:
             f.write(f"{'=' * 70}\nPOST DEL LUNEDÌ — "
                     f"{'VIDEO ' + video if video else 'IMMAGINE ' + str(p.get('immagine'))}\n"
@@ -781,13 +789,16 @@ def pubblica():
             log.info(f"Podcast: video {'programmato' if quando else 'pubblicato'} -> {post_id}")
         except urllib.error.HTTPError as e:
             log.error(f"Podcast: caricamento video HTTP {e.code}: "
-                      f"{e.read().decode('utf-8', 'replace')[:400]} — ripiego sull'immagine")
+                      f"{e.read().decode('utf-8', 'replace')[:400]}")
         except Exception as e:
-            log.error(f"Podcast: caricamento video fallito ({e}) — ripiego sull'immagine")
+            log.error(f"Podcast: caricamento video fallito ({e})")
     else:
-        log.warning(f"Podcast non disponibile ({esito.get('errore', 'nessun esito')}): "
-                    "il post del lunedì esce con l'immagine")
+        log.warning(f"Podcast non disponibile ({esito.get('errore', 'nessun esito')})")
 
+    if not post_id and not schede:
+        log.warning("Post del lunedì non pubblicato: niente video e schede disattivate "
+                    "(FB_SCHEDE = False)")
+        return True
     if not post_id:
         if not p.get("immagine") or not os.path.exists(p["immagine"]):
             log.error("Post del lunedì: manca anche l'immagine, nessuna pubblicazione")

@@ -2,7 +2,7 @@
 
 Newsletter settimanale di medicina d'urgenza per il Pronto Soccorso di San Giovanni Bosco, Torino (Area Critica e Pronto Soccorso, ASL Città di Torino).
 
-Ogni lunedì il sistema interroga i feed PubMed di una lista di riviste, filtra e sintetizza gli articoli più rilevanti per il PS con un modello Claude, e distribuisce il risultato per **email** (Gmail, con le schede e il video del podcast di due minuti in allegato) e su **Facebook** (schede PNG, un post al giorno nei feriali; il lunedì col video del podcast).
+Ogni lunedì il sistema interroga i feed PubMed di una lista di riviste, filtra e sintetizza gli articoli più rilevanti per il PS con un modello Claude, e distribuisce il risultato per **email** (Gmail, con le schede e il video del podcast di due minuti in allegato) e su **Facebook** (solo il video del podcast, il lunedì: le schede PNG non vanno più sulla Pagina, `FB_SCHEDE = False`).
 
 ---
 
@@ -15,7 +15,7 @@ Ogni lunedì il sistema interroga i feed PubMed di una lista di riviste, filtra 
    - massimo `MAX_PER_TEMA` (2) articoli sullo stesso tema clinico;
    - se un vincolo impone uno scambio, entra la rivista di **fascia** più alta ed esce quella più bassa (vedi *Fasce editoriali*).
 4. **Sintesi** — genera per ogni articolo una sintesi in italiano, la rilevanza per il PS e i limiti dello studio. Assegna il **badge** metodologico (vedi sotto). Se meno di `MINIMO_ARTICOLI` (3) articoli ottengono una sintesi valida, **l'invio viene annullato** (meglio un run fallito e visibile che un digest svuotato).
-5. **Distribuzione** — genera le schede PNG con Playwright e il podcast, costruisce l'HTML dell'email, invia l'email ai `DESTINATARI` (schede e video del podcast in allegato) e pubblica su Facebook.
+5. **Distribuzione** — genera le schede PNG con Playwright e il podcast, costruisce l'HTML dell'email, invia l'email ai `DESTINATARI` (schede e video del podcast in allegato) e prepara il post Facebook del lunedì col video del podcast.
 6. **Podcast** — prima dell'email, `podcast.py` produce un podcast di due minuti: il video MP4 parte allegato alla mail ed esce nel post Facebook del lunedì (vedi *Podcast settimanale*).
 
 ---
@@ -89,7 +89,7 @@ Tutti i parametri stanno in `config.py`. I principali:
 
 **Modello** — `ANTHROPIC_MODEL = "claude-sonnet-5"`. ⚠️ Questo modello **rifiuta** il parametro `temperature` e il prefill del turno assistant (HTTP 400): non reintrodurli.
 
-**Facebook** — `FB_API_VERSION` (v21.0), `FB_UN_POST_AL_GIORNO` (True: un articolo per post, non un elenco unico), `FB_ORA` (16), `FB_MINUTO` (0), `FB_GIORNI_FERIALI` (lun–ven), `FB_FUSO` (Europe/Rome). I post vengono programmati sugli slot feriali successivi.
+**Facebook** — `FB_SCHEDE` (False: le schede degli articoli non si pubblicano, sulla Pagina esce solo il video del podcast; True ripristina un post per articolo nei feriali), `FB_API_VERSION` (v21.0), `FB_UN_POST_AL_GIORNO` (True: un articolo per post, non un elenco unico), `FB_ORA` (16), `FB_MINUTO` (0), `FB_GIORNI_FERIALI` (lun–ven), `FB_FUSO` (Europe/Rome). I post vengono programmati sugli slot feriali successivi.
 
 **Branding** — `NOME_NEWSLETTER`, `NOME_SERVIZIO`, `LOGO_URL` (deve essere un URL pubblico: le email non supportano immagini locali o base64), colori.
 
@@ -107,7 +107,7 @@ Ogni lunedì il workflow produce un podcast di circa **due minuti** (una voce, i
 4. **Verifica** — ogni frase viene ritrascritta con Whisper e confrontata col testo; sotto `PODCAST_SOGLIA_WHISPER` si rigenera (fino a `PODCAST_TENTATIVI` volte).
 5. **Uscite** — `podcast/podcast-sNN-AAAA.mp3`, il video `.mp4` (copertina + schede degli articoli che scorrono mentre se ne parla), `copione.txt` ed `esito.json` con il punteggio di ogni frase: tutto nell'artifact del run.
 
-**Post del lunedì** — con il podcast attivo, `newsletter_rss.py` programma come sempre i post 2–5 ma **rinvia il primo** (`podcast/primo_post.json`). Lo pubblica `python podcast.py pubblica`, allo stesso orario (`FB_ORA`): video del podcast + didascalia del primo articolo, preceduta da `PODCAST_FB_TESTA`. **Se il podcast non è pronto, il post esce con l'immagine come prima**: il lunedì non resta mai scoperto. Anche il messaggio per il gruppo (`post_gruppo.txt`) viene scritto qui, col link al post.
+**Post del lunedì** — è l'unico post Facebook della settimana (`FB_SCHEDE = False`). `newsletter_rss.py` ne salva i dati (`podcast/primo_post.json`) e lo pubblica `python podcast.py pubblica`, alle `FB_ORA`: video del podcast + didascalia del primo articolo, preceduta da `PODCAST_FB_TESTA`. **Se il podcast non è pronto o Facebook rifiuta il video, quella settimana sulla Pagina non esce nulla** (nessun ripiego sull'immagine); con `FB_SCHEDE = True` tornano i post 2–5 delle schede e il ripiego sull'immagine. Anche il messaggio per il gruppo (`post_gruppo.txt`) viene scritto qui, col link al post.
 
 **Tempi e costi** — circa 20–30 minuti in più per corsa (la prima più lunga: scarica ~3 GB di modelli, poi in cache). Costo API: una chiamata in più a settimana (pochi centesimi; di più solo se il controllo chiede correzioni). I minuti di GitHub Actions su repo pubblico sono gratuiti.
 
@@ -132,8 +132,8 @@ DRY_RUN=1 python podcast.py pubblica     # scrive solo post_facebook_podcast.txt
 - **API Gruppi Facebook deprecata** (aprile 2024) — la pubblicazione nei gruppi è solo manuale. `post_facebook.txt` esiste anche per copiare a mano la didascalia in un gruppo.
 - **Installazione Playwright fragile** — in CI conviene `timeout-minutes` e `continue-on-error` sullo step di install per non bloccare l'invio del lunedì.
 - **`claude-sonnet-5` e `temperature`/prefill** — vedi sopra: HTTP 400 garantito.
-- **Podcast: memoria e tempo** — Chatterbox su CPU usa ~6 GB di RAM e circa 4–8 secondi di calcolo per secondo di audio (circa 17 minuti per un podcast sul runner). Oltre `PODCAST_TIMEOUT_MAIL` viene interrotto: la mail parte senza podcast e il post del lunedì esce con l'immagine. Le dipendenze si installano **prima** di *Esegui newsletter*; se quel passo fallisce, la newsletter non tenta nemmeno il podcast.
-- **Podcast: video su Facebook** — il caricamento usa `graph-video.facebook.com` con lo stesso token della Pagina (permesso `pages_manage_posts`). Se Facebook rifiuta il video, il post esce con l'immagine e il log riporta l'errore.
+- **Podcast: memoria e tempo** — Chatterbox su CPU usa ~6 GB di RAM e circa 4–8 secondi di calcolo per secondo di audio (circa 17 minuti per un podcast sul runner). Oltre `PODCAST_TIMEOUT_MAIL` viene interrotto: la mail parte senza podcast e su Facebook quella settimana non esce nulla. Le dipendenze si installano **prima** di *Esegui newsletter*; se quel passo fallisce, la newsletter non tenta nemmeno il podcast.
+- **Podcast: video su Facebook** — il caricamento usa `graph-video.facebook.com` con lo stesso token della Pagina (permesso `pages_manage_posts`). Se Facebook rifiuta il video, il log riporta l'errore e il post non esce (con `FB_SCHEDE = False` non c'è ripiego sull'immagine).
 - **Modello Sonnet** — le versioni delle librerie Google sono pinnate nel workflow apposta: un loro breaking change non deve poter bloccare l'invio.
 
 ---

@@ -69,6 +69,13 @@ FB_PAGE_ID     = os.environ.get("FB_PAGE_ID", "")
 FB_PAGE_TOKEN  = os.environ.get("FB_PAGE_TOKEN", "")
 FB_TIMEOUT     = 60
 
+# Schede degli articoli su Facebook. False (scelta del 30/10/2026): nessun post con
+# le immagini della newsletter; sulla Pagina esce SOLO il video del podcast, il
+# lunedì, con la didascalia del primo articolo. Se il podcast manca o Facebook
+# rifiuta il video, quella settimana sulla Pagina non esce nulla (niente ripiego
+# sull'immagine). True = comportamento precedente (un post per articolo).
+FB_SCHEDE      = False
+
 # Pubblicazione distribuita: un post al giorno nei giorni feriali, uno per articolo.
 # La corsa del lunedì crea tutti e cinque i post già programmati; a pubblicarli
 # è poi Facebook. Vincolo API: l'orario deve essere almeno 10 minuti nel futuro.
