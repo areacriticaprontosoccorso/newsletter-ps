@@ -69,6 +69,13 @@ FB_PAGE_ID     = os.environ.get("FB_PAGE_ID", "")
 FB_PAGE_TOKEN  = os.environ.get("FB_PAGE_TOKEN", "")
 FB_TIMEOUT     = 60
 
+# Schede degli articoli su Facebook. False (scelta del 30/10/2026): nessun post con
+# le immagini della newsletter; sulla Pagina esce SOLO il video del podcast, il
+# lunedì, con la didascalia del primo articolo. Se il podcast manca o Facebook
+# rifiuta il video, quella settimana sulla Pagina non esce nulla (niente ripiego
+# sull'immagine). True = comportamento precedente (un post per articolo).
+FB_SCHEDE      = False
+
 # Pubblicazione distribuita: un post al giorno nei giorni feriali, uno per articolo.
 # La corsa del lunedì crea tutti e cinque i post già programmati; a pubblicarli
 # è poi Facebook. Vincolo API: l'orario deve essere almeno 10 minuti nel futuro.
@@ -203,6 +210,9 @@ PODCAST_GRAFIA_FONETICA = {
 # Testo del post unico del lunedì: va sopra la didascalia del primo articolo.
 PODCAST_FB_TESTA = ("Il podcast della settimana: i {n} articoli in due minuti, "
                     "nel video. Qui sotto il primo articolo.\n\n")
+# Con FB_SCHEDE = False il video è l'unico post della settimana: la didascalia
+# elenca tutti gli articoli (titolo, rivista, link PubMed) invece del solo primo.
+PODCAST_FB_TESTA_ELENCO = "Il podcast della settimana: i {n} articoli in due minuti, nel video.\n\n"
 PODCAST_FB_TITOLO = "EM Weekly Digest — Podcast settimana {settimana}/{anno}"
 
 PODCAST_PROMPT = """Scrivi il copione parlato del podcast settimanale di un Pronto Soccorso: \
