@@ -33,8 +33,9 @@ concurrency:
 jobs:
   invia-newsletter:
     runs-on: ubuntu-latest
-    # 15 minuti per la newsletter + fino a 50 per il podcast (voce generata su CPU).
-    timeout-minutes: 75
+    # Dipendenze del podcast fino a 15 minuti, newsletter pochi minuti, podcast fino a
+    # 45 (voce generata su CPU, poi si rinuncia), pubblicazione e artifact: 90 di margine.
+    timeout-minutes: 90
     env:
       # Vuoto quando il workflow parte da cron-job.org: valgono i default.
       DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
@@ -61,19 +62,10 @@ jobs:
           pip install playwright==1.49.0
           playwright install --with-deps chromium
 
-      - name: Esegui newsletter
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GMAIL_USER: ${{ secrets.GMAIL_USER }}
-          GMAIL_TOKEN: ${{ secrets.GMAIL_TOKEN }}
-          DESTINATARI: ${{ secrets.DESTINATARI }}
-          FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
-          FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
-        run: python newsletter_rss.py
-
-      # ── PODCAST ────────────────────────────────────────────────────────────
-      # Tutti i passi del podcast sono non bloccanti: la email è già partita e,
-      # se il podcast manca, il post del lunedì esce con l'immagine come prima.
+      # ── PODCAST: dipendenze ────────────────────────────────────────────────
+      # Il podcast si genera DENTRO "Esegui newsletter", prima della mail, perché
+      # l'MP3 parte allegato. Le dipendenze si installano quindi prima. Passo non
+      # bloccante: se fallisce, la newsletter esce senza podcast come prima.
       # Modelli (voce ~3 GB, Whisper) e pacchetti restano in cache fra un lunedì
       # e l'altro: la prima corsa è più lenta.
       - name: Cache modelli e pacchetti del podcast
@@ -87,7 +79,7 @@ jobs:
 
       - name: Installa dipendenze podcast
         id: dipendenze_podcast
-        if: env.PODCAST == '1' && hashFiles('archivio/*.json') != ''
+        if: env.PODCAST == '1'
         continue-on-error: true
         timeout-minutes: 15
         run: |
@@ -97,16 +89,23 @@ jobs:
           pip install chatterbox-tts==0.1.7 faster-whisper==1.2.1 num2words==0.5.14 \
             pyloudnorm==0.2.0 soundfile "setuptools<81"
 
-      - name: Genera podcast
-        if: steps.dipendenze_podcast.outcome == 'success'
-        continue-on-error: true
-        timeout-minutes: 50
+      # Newsletter completa: selezione, sintesi, schede, podcast (fino a 45 minuti,
+      # poi si rinuncia), mail con l'MP3 allegato, post Facebook. Parte all'ora in
+      # cui cron-job.org avvia il workflow; la mail esce a podcast pronto.
+      - name: Esegui newsletter
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_TOKEN: ${{ secrets.GMAIL_TOKEN }}
+          DESTINATARI: ${{ secrets.DESTINATARI }}
+          FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
+          FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
+          # 'success', 'failure' o vuoto (passo saltato): se non è 'success' il podcast non si tenta
+          PODCAST_DIPENDENZE: ${{ steps.dipendenze_podcast.outcome || 'skipped' }}
           # niente barre di avanzamento nel log (sarebbero migliaia di righe)
           TQDM_DISABLE: '1'
           HF_HUB_DISABLE_PROGRESS_BARS: '1'
-        run: python podcast.py genera
+        run: python newsletter_rss.py
 
       # Gira sempre: pubblica il post del lunedì rimandato dalla newsletter,
       # col video se c'è, altrimenti con l'immagine. Se la newsletter è fallita

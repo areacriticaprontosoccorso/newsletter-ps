@@ -133,6 +133,17 @@ PODCAST_ABILITATO  = os.environ.get("PODCAST", "1").strip().lower() not in ("0",
 PODCAST_DIR        = "podcast"
 PODCAST_PRIMO_POST = os.path.join(PODCAST_DIR, "primo_post.json")
 PODCAST_ESITO      = os.path.join(PODCAST_DIR, "esito.json")
+# Il podcast si genera dentro la newsletter, prima della mail, e l'MP3 parte allegato.
+# Oltre PODCAST_TIMEOUT_MAIL secondi il processo viene chiuso e la mail esce senza.
+PODCAST_TIMEOUT_MAIL = 45 * 60
+# Cosa allegare alla mail, in ordine: il video (MP4, ~4 MB, audio + schede) e, se
+# l'invio col video fallisce, l'MP3 (~2 MB). Nessuno dei due se gli allegati
+# supererebbero MAIL_MAX_MB (Gmail accetta 25 MB; molte caselle aziendali meno).
+PODCAST_MAIL_ALLEGATI = ["mp4", "mp3"]
+MAIL_MAX_MB           = 15
+# Il workflow passa l'esito del passo che installa torch/chatterbox: se è fallito
+# non si perde tempo a tentare. In locale (variabile assente) si tenta.
+PODCAST_DIPENDENZE_OK = os.environ.get("PODCAST_DIPENDENZE", "success").strip() in ("success", "")
 PODCAST_VOCE_RIF   = "podcast_voce.wav"   # campione di voce (sintetica) da imitare
 
 PODCAST_INTRO = ("Benvenuti! Questa è la newsletter settimanale della Medicina "
