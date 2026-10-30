@@ -5,7 +5,7 @@ EM Weekly Digest — podcast settimanale (una voce, circa due minuti).
     python podcast.py pubblica
 
 genera   Lo lancia newsletter_rss.py (genera_podcast) prima di inviare la mail,
-         che parte con l'MP3 allegato. Dall'archivio JSON del digest appena prodotto:
+         che parte con il video del podcast allegato. Dall'archivio JSON del digest appena prodotto:
          1. copione: UNA chiamata a Claude (le regole sono in config.PODCAST_PROMPT);
          2. controllo: ogni numero del copione deve comparire nell'abstract o nella
             sintesi dello stesso articolo, la lunghezza deve rientrare nei limiti;
@@ -26,7 +26,7 @@ pubblica Il post Facebook del lunedì, rimandato da newsletter_rss.py: video del
          solo l'anteprima in post_facebook_podcast.txt.
 
 Nessuna delle due fasi blocca la newsletter: se il podcast fallisce o supera
-config.PODCAST_TIMEOUT_MAIL, la mail parte senza audio e il lunedì esce con l'immagine.
+config.PODCAST_TIMEOUT_MAIL, la mail parte senza podcast e il lunedì esce con l'immagine.
 """
 
 import argparse

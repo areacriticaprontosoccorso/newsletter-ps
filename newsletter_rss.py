@@ -16,7 +16,6 @@ import json
 import time
 import html
 import logging
-import base64
 from collections import Counter
 from zoneinfo import ZoneInfo
 import uuid
@@ -34,6 +33,9 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
 from email.mime.audio import MIMEAudio
+from email.mime.base import MIMEBase
+from email import encoders
+import io
 from datetime import datetime, timedelta, timezone, time as dt_time
 
 import config as cfg
@@ -1334,7 +1336,7 @@ def genera_immagini(articoli):
     return percorsi
 
 
-def build_html(articoli, podcast_mp3=None):
+def build_html(articoli, podcast_allegato=None):
     wl = numero_settimana()
     arts_html = ""
     for i, a in enumerate(articoli):
@@ -1416,9 +1418,10 @@ def build_html(articoli, podcast_mp3=None):
         f'<span style="font-family:monospace;font-size:10px;font-weight:700;letter-spacing:2px;'
         f'color:{cfg.COLOR_ACCENT};text-transform:uppercase;">Podcast</span>'
         f'<span style="font-family:Georgia,serif;font-size:15px;color:#2a2a2a;"> &nbsp;'
-        f'{len(articoli)} articoli in due minuti: lo trovi in allegato, '
-        f'<em>{esc(os.path.basename(podcast_mp3))}</em>.</span></td></tr>'
-    ) if podcast_mp3 else ""
+        f'{len(articoli)} articoli in due minuti: '
+        f'{"il video è in allegato" if str(podcast_allegato).endswith(".mp4") else "lo trovi in allegato"}, '
+        f'<em>{esc(os.path.basename(podcast_allegato))}</em>.</span></td></tr>'
+    ) if podcast_allegato else ""
     _nomi = [r["nlmta"] for r in cfg.RIVISTE]
     riviste_str = " &middot; ".join(_nomi[:6])
     if len(_nomi) > 6:
@@ -1706,7 +1709,8 @@ def pubblica_facebook(immagini, articoli, wl):
 def genera_podcast(archivio=None):
     """Esegue 'podcast.py genera' in un processo separato, con un tempo massimo
     (cfg.PODCAST_TIMEOUT_MAIL): se la voce si blocca il processo viene chiuso e la
-    newsletter parte comunque. Restituisce il percorso dell'MP3 o None."""
+    newsletter parte comunque. Restituisce {"mp4": percorso, "mp3": percorso} (solo i
+    file esistenti) o None."""
     if not getattr(cfg, "PODCAST_ABILITATO", False):
         return None
     if not cfg.PODCAST_DIPENDENZE_OK:
@@ -1736,16 +1740,38 @@ def genera_podcast(archivio=None):
             esito = json.load(f)
     except Exception:
         esito = {}
-    mp3 = esito.get("mp3")
-    if esito.get("ok") and mp3 and os.path.exists(mp3):
-        log.info(f"Podcast pronto in {(time.time() - inizio) / 60:.0f} minuti: {mp3}")
-        return mp3
+    file = {k: esito[k] for k in ("mp4", "mp3") if esito.get(k) and os.path.exists(esito[k])}
+    if esito.get("ok") and file:
+        log.info(f"Podcast pronto in {(time.time() - inizio) / 60:.0f} minuti: "
+                 + ", ".join(file.values()))
+        return file
     log.warning(f"Podcast non disponibile ({esito.get('errore') or 'esito mancante'}): "
                 "la newsletter parte senza")
     return None
 
 
-def invia_email(oggetto, html_body, allegati=None, audio=None):
+def allegati_podcast(podcast, immagini):
+    """File del podcast da allegare alla mail, in ordine di preferenza
+    (cfg.PODCAST_MAIL_ALLEGATI: prima il video, poi l'MP3), scartando quelli che
+    porterebbero gli allegati oltre cfg.MAIL_MAX_MB."""
+    if not podcast:
+        return []
+    base = sum(os.path.getsize(p) for p in immagini or [] if os.path.exists(p))
+    scelti = []
+    for tipo in cfg.PODCAST_MAIL_ALLEGATI:
+        p = podcast.get(tipo)
+        if not p:
+            continue
+        mb = (base + os.path.getsize(p)) / 1e6
+        if mb > cfg.MAIL_MAX_MB:
+            log.warning(f"Podcast {tipo} non allegabile: allegati a {mb:.1f} MB, "
+                        f"massimo {cfg.MAIL_MAX_MB}")
+            continue
+        scelti.append(p)
+    return scelti
+
+
+def invia_email(oggetto, html_body, allegati=None, media=None):
     from google.oauth2.credentials import Credentials
     from googleapiclient.discovery import build
 
@@ -1789,25 +1815,39 @@ def invia_email(oggetto, html_body, allegati=None, audio=None):
         except Exception as e:
             log.warning(f"Allegato saltato ({percorso}): {e}")
 
-    if audio:
+    if media:   # il podcast: video MP4 o audio MP3
         try:
-            with open(audio, "rb") as f:
-                mp3 = MIMEAudio(f.read(), _subtype="mpeg")
-            mp3.add_header("Content-Disposition", "attachment",
-                           filename=os.path.basename(audio))
-            msg.attach(mp3)
+            with open(media, "rb") as f:
+                dati = f.read()
+            if media.endswith(".mp4"):
+                parte = MIMEBase("video", "mp4")
+                parte.set_payload(dati)
+                encoders.encode_base64(parte)
+            else:
+                parte = MIMEAudio(dati, _subtype="mpeg")
+            parte.add_header("Content-Disposition", "attachment",
+                             filename=os.path.basename(media))
+            msg.attach(parte)
         except Exception as e:
-            log.warning(f"Podcast non allegato ({audio}): {e}")
-            audio = None
+            log.warning(f"Podcast non allegato ({media}): {e}")
+            media = None
 
     try:
+        from googleapiclient.http import MediaIoBaseUpload
         service = build('gmail', 'v1', credentials=creds)
-        raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
-        service.users().messages().send(userId='me', body={'raw': raw}).execute()
+        # Caricamento come message/rfc822 (endpoint /upload): il campo 'raw' nel JSON
+        # regge solo pochi MB, troppo poco con il video del podcast. Così si arriva
+        # al limite di Gmail (25 MB).
+        dati = msg.as_bytes()
+        corpo_upload = MediaIoBaseUpload(io.BytesIO(dati), mimetype="message/rfc822",
+                                         resumable=True)
+        service.users().messages().send(userId='me', body={},
+                                        media_body=corpo_upload).execute()
         log.info(
             f"Email inviata a {len(cfg.DESTINATARI)} destinatari (Bcc), "
             f"{len(allegati or [])} immagini allegate"
-            + (f", podcast {os.path.basename(audio)}" if audio else "")
+            + (f", podcast {os.path.basename(media)}" if media else "")
+            + f" ({len(dati) / 1e6:.1f} MB)"
         )
         return True
     except Exception as e:
@@ -1873,8 +1913,10 @@ def main():
 
     # Il podcast si genera prima della mail (gli servono archivio e schede), così
     # l'MP3 parte allegato. Mai bloccante: se manca, la mail esce come sempre.
-    podcast_mp3 = genera_podcast(archivio)
-    html_body = build_html(selezionati, podcast_mp3=podcast_mp3)
+    podcast = genera_podcast(archivio)
+    candidati_podcast = allegati_podcast(podcast, immagini)
+    html_body = build_html(selezionati,
+                           podcast_allegato=candidati_podcast[0] if candidati_podcast else None)
 
     if cfg.DRY_RUN:
         with open(cfg.DRY_RUN_FILE, "w", encoding="utf-8") as f:
@@ -1882,7 +1924,9 @@ def main():
         log.info("=== DRY RUN: nessuna email inviata ===")
         log.info(f"Anteprima HTML scritta in {cfg.DRY_RUN_FILE}")
         log.info(f"Schede PNG in {cfg.IMG_DIR}/: {len(immagini)}")
-        log.info(f"Podcast da allegare: {podcast_mp3 or 'nessuno (la mail partirebbe senza)'}")
+        log.info("Podcast da allegare: "
+                 + (", poi ".join(candidati_podcast) if candidati_podcast
+                    else "nessuno (la mail partirebbe senza)"))
         # In prova a vuoto il post non parte: si salva solo la didascalia,
         # cosi' la si puo' rileggere (e usare per un post manuale nel gruppo).
         # L'anteprima deve mostrare esattamente cio' che verra' pubblicato: con
@@ -1936,12 +1980,16 @@ def main():
         log.warning("=== MODALITA' SOLO FACEBOOK: nessuna email inviata ===")
         ok = True
     else:
-        ok = invia_email(oggetto, html_body, allegati=immagini, audio=podcast_mp3)
-        if not ok and podcast_mp3:
-            # L'invio è atomico: se è fallito non è partito nulla. Si riprova senza
-            # l'audio, nel caso il problema fosse l'allegato.
-            log.warning("Invio con il podcast fallito: riprovo senza l'allegato audio")
-            ok = invia_email(oggetto, build_html(selezionati), allegati=immagini)
+        # Prima col video, poi con l'MP3, infine senza podcast. L'invio è atomico:
+        # se fallisce non è partito nulla e il tentativo successivo non duplica.
+        ok = False
+        for media in candidati_podcast + [None]:
+            if media is None and candidati_podcast:
+                log.warning("Invio con il podcast fallito: riprovo senza allegarlo")
+            ok = invia_email(oggetto, build_html(selezionati, podcast_allegato=media),
+                             allegati=immagini, media=media)
+            if ok:
+                break
 
     # Facebook dopo l'email: un errore qui non deve impedire l'invio del digest.
     pubblica_facebook(immagini, selezionati, wl)
