@@ -665,7 +665,8 @@ def genera(archivio=None, copione_file=None):
         sf.write(wav, grezzo, sr)
 
         durata_grezza = len(grezzo) / sr
-        atempo = min(max(durata_grezza / (cfg.PODCAST_DURATA_MAX - 0.5), 1.0), cfg.PODCAST_ATEMPO_MAX)
+        atempo = min(max(durata_grezza / (cfg.PODCAST_DURATA_MAX - 0.5),
+                         getattr(cfg, "PODCAST_ATEMPO_MIN", 1.0)), cfg.PODCAST_ATEMPO_MAX)
         mp3 = os.path.join(cfg.PODCAST_DIR, f"podcast-s{str(wl['settimana']).zfill(2)}-{wl['anno']}.mp3")
         subprocess.run(
             ["ffmpeg", "-y", "-loglevel", "error", "-i", wav,

@@ -144,7 +144,7 @@ MAIL_MAX_MB           = 15
 # Il workflow passa l'esito del passo che installa torch/chatterbox: se è fallito
 # non si perde tempo a tentare. In locale (variabile assente) si tenta.
 PODCAST_DIPENDENZE_OK = os.environ.get("PODCAST_DIPENDENZE", "success").strip() in ("success", "")
-PODCAST_VOCE_RIF   = "podcast_voce.wav"   # campione di voce (sintetica) da imitare
+PODCAST_VOCE_RIF   = "podcast_voce.wav"   # campione da imitare: 12,6 s della voce di Francesco Panero
 
 PODCAST_INTRO = ("Benvenuti! Questa è la newsletter settimanale della Medicina "
                  "d'Emergenza-Urgenza dell'ospedale San Giovanni Bosco di Torino. "
@@ -157,10 +157,13 @@ PODCAST_CHIUSURA = "Alla prossima."
 PODCAST_ESAGERAZIONE = 0.35
 PODCAST_CFG          = 0.3
 
-# Durata: se il parlato supera PODCAST_DURATA_MAX secondi si accelera fino a
-# PODCAST_ATEMPO_MAX (oltre, la voce si snatura: si pubblica comunque, con avviso).
+# Velocità: il parlato si accelera quanto serve per stare in PODCAST_DURATA_MAX,
+# ma sempre fra PODCAST_ATEMPO_MIN e PODCAST_ATEMPO_MAX. Con la voce di Francesco
+# (ritmo più disteso) si è scelto 1,20 fisso all'ascolto il 30/10: con 216 parole
+# il podcast dura circa 2'10" (oltre il limite: si pubblica comunque, con avviso).
 PODCAST_DURATA_MAX = 120
-PODCAST_ATEMPO_MAX = 1.10
+PODCAST_ATEMPO_MIN = 1.20
+PODCAST_ATEMPO_MAX = 1.20
 # Parole del copione per TUTTI gli articoli insieme (intro e chiusura escluse),
 # riferite a un digest di ARTICOLI_FINALI articoli: con meno articoli i limiti
 # scalano in proporzione. Misurato sul run del 30/10: 235 parole + intro = 124 s anche

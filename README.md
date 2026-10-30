@@ -103,7 +103,7 @@ Ogni lunedì il workflow produce un podcast di circa **due minuti** (una voce, i
 
 1. **Copione** — una chiamata a Claude (`PODCAST_PROMPT`) scrive un paragrafo per articolo a partire dall'archivio del digest. Intro e chiusura sono fisse (`PODCAST_INTRO`, `PODCAST_CHIUSURA`).
 2. **Controllo** — ogni numero del copione deve comparire nell'abstract o nella sintesi dello stesso articolo (ammessi arrotondamenti, e scarti piccoli solo dopo "circa", "oltre", "quasi"); lunghezza fra `PODCAST_PAROLE_MIN` e `PODCAST_PAROLE_MAX`, frasi brevi. Se qualcosa non torna Claude riscrive (massimo 3 tentativi), poi il podcast salta.
-3. **Voce** — [Chatterbox](https://github.com/resemble-ai/chatterbox) gira sul runner, senza API. I termini fra `[[...]]` nel copione sono generati in voce inglese e uniti alla frase senza pause; le parole inglesi brevi (`trial`, `cluster`…) usano la grafia fonetica di `PODCAST_GRAFIA_FONETICA`. Il timbro è quello di `podcast_voce.wav` (una voce sintetica, non di una persona).
+3. **Voce** — [Chatterbox](https://github.com/resemble-ai/chatterbox) gira sul runner, senza API. I termini fra `[[...]]` nel copione sono generati in voce inglese e uniti alla frase senza pause; le parole inglesi brevi (`trial`, `cluster`…) usano la grafia fonetica di `PODCAST_GRAFIA_FONETICA`. Il timbro è quello di `podcast_voce.wav`: 12,6 secondi registrati da Francesco Panero, imitati dal modello (intonazione calma, `PODCAST_ESAGERAZIONE`/`PODCAST_CFG`). Il parlato è accelerato a 1,20 (`PODCAST_ATEMPO_MIN`/`MAX`). Per cambiare voce basta sostituire il file con 10-15 secondi di parlato pulito.
 4. **Verifica** — ogni frase viene ritrascritta con Whisper e confrontata col testo; sotto `PODCAST_SOGLIA_WHISPER` si rigenera (fino a `PODCAST_TENTATIVI` volte).
 5. **Uscite** — `podcast/podcast-sNN-AAAA.mp3`, il video `.mp4` (copertina + schede degli articoli che scorrono mentre se ne parla), `copione.txt` ed `esito.json` con il punteggio di ogni frase: tutto nell'artifact del run.
 
@@ -146,7 +146,7 @@ DRY_RUN=1 python podcast.py pubblica     # scrive solo post_facebook_podcast.txt
 | `config.py` | Tutti i parametri: riviste, vincoli, prompt, secrets, branding. |
 | `.github/workflows/newsletter.yml` | Workflow `workflow_dispatch` (chiamato da cron-job.org). |
 | `podcast.py` | Podcast settimanale (copione, voce, video) e post Facebook del lunedì. |
-| `podcast_voce.wav` | Campione della voce del podcast (sintetica). |
+| `podcast_voce.wav` | Campione della voce del podcast (12,6 s, voce di Francesco Panero). |
 | `logo.jpg` | Logo referenziato da `LOGO_URL` nelle email. |
 | `logo-medicina-urgenza.png` | Logo usato nella copertina del video del podcast. |
 
