@@ -556,7 +556,7 @@ def html_copertina(articoli, wl):
       <div style="font-family:Georgia,serif;font-size:64px;font-weight:700;color:#ffffff;
                   line-height:1.1;margin:16px 0 12px;">EM Weekly Digest</div>
       <div style="font-family:Georgia,serif;font-size:31px;color:#d8d8d8;">
-        {len(articoli)} articoli · 2 minuti · medicina d'emergenza-urgenza</div>
+        {len(articoli)} articoli, 2 minuti, sola medicina d'emergenza-urgenza</div>
     </div>
     <div style="display:flex;flex-direction:column;gap:30px;">{righe}</div>
     <div style="font-family:monospace;font-size:19px;color:#7a7a7a;">{nr.esc(cfg.NOME_SERVIZIO)}</div>
