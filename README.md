@@ -2,7 +2,7 @@
 
 Newsletter settimanale di medicina d'urgenza per il Pronto Soccorso di San Giovanni Bosco, Torino (Area Critica e Pronto Soccorso, ASL Città di Torino).
 
-Ogni lunedì il sistema interroga i feed PubMed di una lista di riviste, filtra e sintetizza gli articoli più rilevanti per il PS con un modello Claude, e distribuisce il risultato per **email** (Gmail, con le schede e il video del podcast di due minuti in allegato) e su **Facebook** (solo il video del podcast, il lunedì: le schede PNG non vanno più sulla Pagina, `FB_SCHEDE = False`).
+Ogni lunedì il sistema interroga i feed PubMed di una lista di riviste, filtra e sintetizza gli articoli più rilevanti per il PS con un modello Claude, e distribuisce il risultato per **email** (Gmail, con le schede e il video del podcast di due minuti in allegato) e su **Facebook** (solo il video del podcast, il lunedì, con l'elenco degli articoli: le schede PNG non vanno più sulla Pagina, `FB_SCHEDE = False`).
 
 ---
 
@@ -107,7 +107,7 @@ Ogni lunedì il workflow produce un podcast di circa **due minuti** (una voce, i
 4. **Verifica** — ogni frase viene ritrascritta con Whisper e confrontata col testo; sotto `PODCAST_SOGLIA_WHISPER` si rigenera (fino a `PODCAST_TENTATIVI` volte).
 5. **Uscite** — `podcast/podcast-sNN-AAAA.mp3`, il video `.mp4` (copertina + schede degli articoli che scorrono mentre se ne parla), `copione.txt` ed `esito.json` con il punteggio di ogni frase: tutto nell'artifact del run.
 
-**Post del lunedì** — è l'unico post Facebook della settimana (`FB_SCHEDE = False`). `newsletter_rss.py` ne salva i dati (`podcast/primo_post.json`) e lo pubblica `python podcast.py pubblica`, alle `FB_ORA`: video del podcast + didascalia del primo articolo, preceduta da `PODCAST_FB_TESTA`. **Se il podcast non è pronto o Facebook rifiuta il video, quella settimana sulla Pagina non esce nulla** (nessun ripiego sull'immagine); con `FB_SCHEDE = True` tornano i post 2–5 delle schede e il ripiego sull'immagine. Anche il messaggio per il gruppo (`post_gruppo.txt`) viene scritto qui, col link al post.
+**Post del lunedì** — è l'unico post Facebook della settimana (`FB_SCHEDE = False`). `newsletter_rss.py` ne salva i dati (`podcast/primo_post.json`) e lo pubblica `python podcast.py pubblica`, alle `FB_ORA`: video del podcast + didascalia con l'elenco di tutti gli articoli (titolo, badge, rivista, link PubMed), preceduta da `PODCAST_FB_TESTA_ELENCO`. **Se il podcast non è pronto o Facebook rifiuta il video, quella settimana sulla Pagina non esce nulla** (nessun ripiego sull'immagine); con `FB_SCHEDE = True` tornano i post 2–5 delle schede e il ripiego sull'immagine. Anche il messaggio per il gruppo (`post_gruppo.txt`) viene scritto qui, col link al post.
 
 **Tempi e costi** — circa 20–30 minuti in più per corsa (la prima più lunga: scarica ~3 GB di modelli, poi in cache). Costo API: una chiamata in più a settimana (pochi centesimi; di più solo se il controllo chiede correzioni). I minuti di GitHub Actions su repo pubblico sono gratuiti.
 

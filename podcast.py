@@ -754,7 +754,11 @@ def pubblica():
     video = esito.get("mp4") if esito.get("ok") and esito.get("mp4") and \
         os.path.exists(esito["mp4"]) else None
     wl = {"settimana": p["settimana"], "anno": p["anno"]}
-    messaggio_video = cfg.PODCAST_FB_TESTA.format(n=p["totale"]) + p["message"]
+    if not getattr(cfg, "FB_SCHEDE", True) and p.get("message_elenco"):
+        # unico post della settimana: elenco di tutti gli articoli
+        messaggio_video = cfg.PODCAST_FB_TESTA_ELENCO.format(n=p["totale"]) + p["message_elenco"]
+    else:
+        messaggio_video = cfg.PODCAST_FB_TESTA.format(n=p["totale"]) + p["message"]
     titolo = cfg.PODCAST_FB_TITOLO.format(**wl)
 
     quando = datetime.fromisoformat(p["quando"])

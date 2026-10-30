@@ -1565,7 +1565,7 @@ def testo_post_articolo(a, indice, totale, wl):
     )
 
 
-def salva_primo_post(immagine, art, indice, totale, quando, wl):
+def salva_primo_post(immagine, art, indice, totale, quando, wl, articoli=None):
     """Con il podcast attivo il post del primo articolo non si programma qui:
     se ne salvano i dati e lo pubblica 'podcast.py pubblica' (col video del
     podcast, o con questa immagine se il podcast non e' pronto)."""
@@ -1579,6 +1579,10 @@ def salva_primo_post(immagine, art, indice, totale, quando, wl):
         "titolo": art["titolo"],
         "totale": totale,
     }
+    if articoli:
+        # didascalia con l'elenco di tutti gli articoli: la usa il post del podcast
+        # quando le schede non vanno su Facebook (FB_SCHEDE = False)
+        dati["message_elenco"] = testo_post_facebook(articoli, wl)
     with open(cfg.PODCAST_PRIMO_POST, "w", encoding="utf-8") as f:
         json.dump(dati, f, ensure_ascii=False, indent=2)
     log.info(f"    post 1/{totale} rinviato al podcast "
@@ -1679,7 +1683,7 @@ def rinvia_primo_post_al_podcast(immagini, articoli, wl):
     slot = prossimi_slot_feriali(1)
     try:
         salva_primo_post(immagini[0] if immagini else None, articoli[0], 1,
-                         len(articoli), slot[0], wl)
+                         len(articoli), slot[0], wl, articoli=articoli)
     except Exception as e:
         log.error(f"Post del podcast non preparato: {e}")
         return False
@@ -1961,7 +1965,8 @@ def main():
                 if getattr(cfg, "PODCAST_ABILITATO", False):
                     try:
                         salva_primo_post(immagini[0] if immagini else None, selezionati[0], 1,
-                                         len(selezionati), prossimi_slot_feriali(1)[0], wl)
+                                         len(selezionati), prossimi_slot_feriali(1)[0], wl,
+                                         articoli=selezionati)
                     except Exception as e:
                         log.warning(f"Post del lunedi' per il podcast non salvato: {e}")
             elif cfg.FB_UN_POST_AL_GIORNO:

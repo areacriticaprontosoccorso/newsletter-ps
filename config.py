@@ -210,6 +210,9 @@ PODCAST_GRAFIA_FONETICA = {
 # Testo del post unico del lunedì: va sopra la didascalia del primo articolo.
 PODCAST_FB_TESTA = ("Il podcast della settimana: i {n} articoli in due minuti, "
                     "nel video. Qui sotto il primo articolo.\n\n")
+# Con FB_SCHEDE = False il video è l'unico post della settimana: la didascalia
+# elenca tutti gli articoli (titolo, rivista, link PubMed) invece del solo primo.
+PODCAST_FB_TESTA_ELENCO = "Il podcast della settimana: i {n} articoli in due minuti, nel video.\n\n"
 PODCAST_FB_TITOLO = "EM Weekly Digest — Podcast settimana {settimana}/{anno}"
 
 PODCAST_PROMPT = """Scrivi il copione parlato del podcast settimanale di un Pronto Soccorso: \
