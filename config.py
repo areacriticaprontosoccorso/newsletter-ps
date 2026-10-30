@@ -147,10 +147,11 @@ PODCAST_DURATA_MAX = 120
 PODCAST_ATEMPO_MAX = 1.10
 # Parole del copione per TUTTI gli articoli insieme (intro e chiusura escluse),
 # riferite a un digest di ARTICOLI_FINALI articoli: con meno articoli i limiti
-# scalano in proporzione. 230 parole + intro = circa due minuti con questa voce.
+# scalano in proporzione. Misurato sul run del 30/10: 235 parole + intro = 124 s anche
+# a velocità 1,10, quindi il tetto è sceso a 220 (circa 120 s).
 # In PODCAST_INTRO, {Articoli} diventa il numero in lettere ("Cinque", "Quattro"...).
-PODCAST_PAROLE_MIN = 200
-PODCAST_PAROLE_MAX = 240
+PODCAST_PAROLE_MIN = 185
+PODCAST_PAROLE_MAX = 220
 
 # Verifica della voce: ogni frase viene ritrascritta con Whisper e confrontata
 # col testo; sotto soglia si rigenera (fino a PODCAST_TENTATIVI volte, si tiene
@@ -204,6 +205,9 @@ parole ciascuno, MAI di più (circa 3 o 4 frasi). Tutti i paragrafi insieme: fra
 3. Per ogni articolo: il disegno dello studio in poche parole, UN risultato principale \
 con al massimo due numeri, e il limite più importante o il peso dell'evidenza. \
 Ometti intervalli di confidenza, valori p, analisi secondarie e dettagli di metodo.
+Ogni percentuale o rischio va sempre col suo confronto ("X% contro Y%"): mai un \
+valore isolato. Scrivi i termini medici italiani per esteso e nella forma corretta \
+("ritorno della circolazione spontanea", non "circolo spontaneo").
 4. NUMERI: usa SOLO numeri presenti nell'abstract o nella sintesi di QUELL'articolo, \
 scritti in cifre (decimali con la virgola, migliaia col punto: 60.000; percentuali col \
 simbolo %). Puoi arrotondare solo premettendo "circa". NON calcolare numeri nuovi: \
