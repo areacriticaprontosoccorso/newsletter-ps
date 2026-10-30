@@ -24,6 +24,8 @@ import pathlib
 import tempfile
 import shutil
 import os
+import sys
+import subprocess
 import urllib.request
 import urllib.error
 import urllib.parse
@@ -31,6 +33,7 @@ import xml.etree.ElementTree as ET
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
+from email.mime.audio import MIMEAudio
 from datetime import datetime, timedelta, timezone, time as dt_time
 
 import config as cfg
@@ -1331,7 +1334,7 @@ def genera_immagini(articoli):
     return percorsi
 
 
-def build_html(articoli):
+def build_html(articoli, podcast_mp3=None):
     wl = numero_settimana()
     arts_html = ""
     for i, a in enumerate(articoli):
@@ -1408,6 +1411,14 @@ def build_html(articoli):
             for k, l in enumerate(loghi))
         + '</td></tr></table>'
     ) if loghi else ""
+    riga_podcast = (
+        f'      <tr><td style="background:#fbf3e4;padding:14px 32px;border-bottom:1px solid #e8dcc6;">'
+        f'<span style="font-family:monospace;font-size:10px;font-weight:700;letter-spacing:2px;'
+        f'color:{cfg.COLOR_ACCENT};text-transform:uppercase;">Podcast</span>'
+        f'<span style="font-family:Georgia,serif;font-size:15px;color:#2a2a2a;"> &nbsp;'
+        f'{len(articoli)} articoli in due minuti: lo trovi in allegato, '
+        f'<em>{esc(os.path.basename(podcast_mp3))}</em>.</span></td></tr>'
+    ) if podcast_mp3 else ""
     _nomi = [r["nlmta"] for r in cfg.RIVISTE]
     riviste_str = " &middot; ".join(_nomi[:6])
     if len(_nomi) > 6:
@@ -1453,6 +1464,7 @@ def build_html(articoli):
           <span style="font-family:monospace;font-size:10px;color:#888;letter-spacing:1px;">{riviste_str}</span>
         </td>
       </tr>
+{riga_podcast}
       <tr><td style="background:#ffffff;"><table width="100%" cellpadding="0" cellspacing="0">{arts_html}</table></td></tr>
       <tr>
         <td style="background:{cfg.COLOR_DARK};padding:22px 32px;">
@@ -1691,7 +1703,49 @@ def pubblica_facebook(immagini, articoli, wl):
     return False
 
 
-def invia_email(oggetto, html_body, allegati=None):
+def genera_podcast(archivio=None):
+    """Esegue 'podcast.py genera' in un processo separato, con un tempo massimo
+    (cfg.PODCAST_TIMEOUT_MAIL): se la voce si blocca il processo viene chiuso e la
+    newsletter parte comunque. Restituisce il percorso dell'MP3 o None."""
+    if not getattr(cfg, "PODCAST_ABILITATO", False):
+        return None
+    if not cfg.PODCAST_DIPENDENZE_OK:
+        log.warning("Podcast saltato: dipendenze non installate (vedi il passo del workflow)")
+        return None
+    script = os.path.join(cfg.DIR_BASE, "podcast.py")
+    if not os.path.exists(script):
+        return None
+    try:
+        os.remove(cfg.PODCAST_ESITO)          # mai leggere l'esito di una corsa precedente
+    except OSError:
+        pass
+    comando = [sys.executable, script, "genera"] + (["--archivio", archivio] if archivio else [])
+    log.info(f"Generazione del podcast (al massimo {cfg.PODCAST_TIMEOUT_MAIL // 60} minuti)...")
+    inizio = time.time()
+    try:
+        subprocess.run(comando, cwd=cfg.DIR_BASE, timeout=cfg.PODCAST_TIMEOUT_MAIL, check=False)
+    except subprocess.TimeoutExpired:
+        log.warning(f"Podcast interrotto dopo {cfg.PODCAST_TIMEOUT_MAIL // 60} minuti: "
+                    "la newsletter parte senza")
+        return None
+    except Exception as e:
+        log.warning(f"Podcast non avviato: {e}")
+        return None
+    try:
+        with open(cfg.PODCAST_ESITO, encoding="utf-8") as f:
+            esito = json.load(f)
+    except Exception:
+        esito = {}
+    mp3 = esito.get("mp3")
+    if esito.get("ok") and mp3 and os.path.exists(mp3):
+        log.info(f"Podcast pronto in {(time.time() - inizio) / 60:.0f} minuti: {mp3}")
+        return mp3
+    log.warning(f"Podcast non disponibile ({esito.get('errore') or 'esito mancante'}): "
+                "la newsletter parte senza")
+    return None
+
+
+def invia_email(oggetto, html_body, allegati=None, audio=None):
     from google.oauth2.credentials import Credentials
     from googleapiclient.discovery import build
 
@@ -1735,6 +1789,17 @@ def invia_email(oggetto, html_body, allegati=None):
         except Exception as e:
             log.warning(f"Allegato saltato ({percorso}): {e}")
 
+    if audio:
+        try:
+            with open(audio, "rb") as f:
+                mp3 = MIMEAudio(f.read(), _subtype="mpeg")
+            mp3.add_header("Content-Disposition", "attachment",
+                           filename=os.path.basename(audio))
+            msg.attach(mp3)
+        except Exception as e:
+            log.warning(f"Podcast non allegato ({audio}): {e}")
+            audio = None
+
     try:
         service = build('gmail', 'v1', credentials=creds)
         raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
@@ -1742,6 +1807,7 @@ def invia_email(oggetto, html_body, allegati=None):
         log.info(
             f"Email inviata a {len(cfg.DESTINATARI)} destinatari (Bcc), "
             f"{len(allegati or [])} immagini allegate"
+            + (f", podcast {os.path.basename(audio)}" if audio else "")
         )
         return True
     except Exception as e:
@@ -1782,7 +1848,7 @@ def main():
         return False
 
     selezionati = sintetizza_articoli(selezionati)
-    salva_archivio(wl, selezionati)
+    archivio = salva_archivio(wl, selezionati)
     log.info(
         f"Uso API: {USO_API['chiamate']} chiamate, {USO_API['token_in']} token in, "
         f"{USO_API['token_out']} token out"
@@ -1800,12 +1866,15 @@ def main():
         return False
     selezionati = con_sintesi
 
-    html_body = build_html(selezionati)
-
     oggetto = f"EM Weekly Digest — Settimana {wl['settimana']}/{wl['anno']}"
 
     log.info("Generazione schede PNG...")
     immagini = genera_immagini(selezionati)
+
+    # Il podcast si genera prima della mail (gli servono archivio e schede), così
+    # l'MP3 parte allegato. Mai bloccante: se manca, la mail esce come sempre.
+    podcast_mp3 = genera_podcast(archivio)
+    html_body = build_html(selezionati, podcast_mp3=podcast_mp3)
 
     if cfg.DRY_RUN:
         with open(cfg.DRY_RUN_FILE, "w", encoding="utf-8") as f:
@@ -1813,6 +1882,7 @@ def main():
         log.info("=== DRY RUN: nessuna email inviata ===")
         log.info(f"Anteprima HTML scritta in {cfg.DRY_RUN_FILE}")
         log.info(f"Schede PNG in {cfg.IMG_DIR}/: {len(immagini)}")
+        log.info(f"Podcast da allegare: {podcast_mp3 or 'nessuno (la mail partirebbe senza)'}")
         # In prova a vuoto il post non parte: si salva solo la didascalia,
         # cosi' la si puo' rileggere (e usare per un post manuale nel gruppo).
         # L'anteprima deve mostrare esattamente cio' che verra' pubblicato: con
@@ -1866,7 +1936,12 @@ def main():
         log.warning("=== MODALITA' SOLO FACEBOOK: nessuna email inviata ===")
         ok = True
     else:
-        ok = invia_email(oggetto, html_body, allegati=immagini)
+        ok = invia_email(oggetto, html_body, allegati=immagini, audio=podcast_mp3)
+        if not ok and podcast_mp3:
+            # L'invio è atomico: se è fallito non è partito nulla. Si riprova senza
+            # l'audio, nel caso il problema fosse l'allegato.
+            log.warning("Invio con il podcast fallito: riprovo senza l'allegato audio")
+            ok = invia_email(oggetto, build_html(selezionati), allegati=immagini)
 
     # Facebook dopo l'email: un errore qui non deve impedire l'invio del digest.
     pubblica_facebook(immagini, selezionati, wl)

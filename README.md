@@ -2,7 +2,7 @@
 
 Newsletter settimanale di medicina d'urgenza per il Pronto Soccorso di San Giovanni Bosco, Torino (Area Critica e Pronto Soccorso, ASL Città di Torino).
 
-Ogni lunedì il sistema interroga i feed PubMed di una lista di riviste, filtra e sintetizza gli articoli più rilevanti per il PS con un modello Claude, e distribuisce il risultato per **email** (Gmail) e su **Facebook** (schede PNG, un post al giorno nei feriali; il lunedì col video del podcast di due minuti).
+Ogni lunedì il sistema interroga i feed PubMed di una lista di riviste, filtra e sintetizza gli articoli più rilevanti per il PS con un modello Claude, e distribuisce il risultato per **email** (Gmail, con le schede e il podcast di due minuti in allegato) e su **Facebook** (schede PNG, un post al giorno nei feriali; il lunedì col video del podcast).
 
 ---
 
@@ -15,8 +15,8 @@ Ogni lunedì il sistema interroga i feed PubMed di una lista di riviste, filtra 
    - massimo `MAX_PER_TEMA` (2) articoli sullo stesso tema clinico;
    - se un vincolo impone uno scambio, entra la rivista di **fascia** più alta ed esce quella più bassa (vedi *Fasce editoriali*).
 4. **Sintesi** — genera per ogni articolo una sintesi in italiano, la rilevanza per il PS e i limiti dello studio. Assegna il **badge** metodologico (vedi sotto). Se meno di `MINIMO_ARTICOLI` (3) articoli ottengono una sintesi valida, **l'invio viene annullato** (meglio un run fallito e visibile che un digest svuotato).
-5. **Distribuzione** — costruisce l'HTML dell'email, genera le schede PNG con Playwright, invia l'email ai `DESTINATARI` e pubblica su Facebook.
-6. **Podcast** — dopo l'email, `podcast.py` produce un podcast di due minuti e lo pubblica come video nel post Facebook del lunedì (vedi *Podcast settimanale*).
+5. **Distribuzione** — genera le schede PNG con Playwright e il podcast, costruisce l'HTML dell'email, invia l'email ai `DESTINATARI` (schede e MP3 in allegato) e pubblica su Facebook.
+6. **Podcast** — prima dell'email, `podcast.py` produce un podcast di due minuti: l'MP3 parte allegato alla mail e il video esce nel post Facebook del lunedì (vedi *Podcast settimanale*).
 
 ---
 
@@ -97,7 +97,9 @@ Tutti i parametri stanno in `config.py`. I principali:
 
 ## Podcast settimanale (`podcast.py`)
 
-Ogni lunedì, dopo l'email, il workflow produce un podcast di circa **due minuti** (una voce, italiano, riviste e termini inglesi in pronuncia inglese) e lo pubblica su Facebook come **video** nel post del primo articolo.
+Ogni lunedì il workflow produce un podcast di circa **due minuti** (una voce, italiano, riviste e termini inglesi in pronuncia inglese): l'**MP3 parte allegato alla mail** ai `DESTINATARI` e il **video** esce su Facebook nel post del primo articolo.
+
+**Quando parte la mail** — l'orario del run lo decide cron-job.org (lunedì 13:00), non il codice. Dentro il run, `newsletter_rss.py` genera schede e podcast (`genera_podcast`, un processo separato) e solo dopo invia la mail: con la cache dei modelli calda la mail esce circa 20–30 minuti dopo l'avvio. Se il podcast fallisce, o supera `PODCAST_TIMEOUT_MAIL` (45 minuti), il processo viene chiuso e la mail parte **senza** audio, come prima. Se Gmail rifiuta l'invio con l'allegato audio, si riprova subito senza. Nella mail una riga sotto l'intestazione segnala l'allegato.
 
 1. **Copione** — una chiamata a Claude (`PODCAST_PROMPT`) scrive un paragrafo per articolo a partire dall'archivio del digest. Intro e chiusura sono fisse (`PODCAST_INTRO`, `PODCAST_CHIUSURA`).
 2. **Controllo** — ogni numero del copione deve comparire nell'abstract o nella sintesi dello stesso articolo (ammessi arrotondamenti, e scarti piccoli solo dopo "circa", "oltre", "quasi"); lunghezza fra `PODCAST_PAROLE_MIN` e `PODCAST_PAROLE_MAX`, frasi brevi. Se qualcosa non torna Claude riscrive (massimo 3 tentativi), poi il podcast salta.
@@ -130,7 +132,7 @@ DRY_RUN=1 python podcast.py pubblica     # scrive solo post_facebook_podcast.txt
 - **API Gruppi Facebook deprecata** (aprile 2024) — la pubblicazione nei gruppi è solo manuale. `post_facebook.txt` esiste anche per copiare a mano la didascalia in un gruppo.
 - **Installazione Playwright fragile** — in CI conviene `timeout-minutes` e `continue-on-error` sullo step di install per non bloccare l'invio del lunedì.
 - **`claude-sonnet-5` e `temperature`/prefill** — vedi sopra: HTTP 400 garantito.
-- **Podcast: memoria e tempo** — Chatterbox su CPU usa ~6 GB di RAM e circa 4–8 secondi di calcolo per secondo di audio. Se il passo supera i 50 minuti viene interrotto e il post del lunedì esce con l'immagine.
+- **Podcast: memoria e tempo** — Chatterbox su CPU usa ~6 GB di RAM e circa 4–8 secondi di calcolo per secondo di audio (circa 17 minuti per un podcast sul runner). Oltre `PODCAST_TIMEOUT_MAIL` viene interrotto: la mail parte senza audio e il post del lunedì esce con l'immagine. Le dipendenze si installano **prima** di *Esegui newsletter*; se quel passo fallisce, la newsletter non tenta nemmeno il podcast.
 - **Podcast: video su Facebook** — il caricamento usa `graph-video.facebook.com` con lo stesso token della Pagina (permesso `pages_manage_posts`). Se Facebook rifiuta il video, il post esce con l'immagine e il log riporta l'errore.
 - **Modello Sonnet** — le versioni delle librerie Google sono pinnate nel workflow apposta: un loro breaking change non deve poter bloccare l'invio.
 
