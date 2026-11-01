@@ -45,6 +45,8 @@ jobs:
       # Motore della voce: 'gemini' (predefinito, API di Google) o 'chatterbox' (modello
       # locale). Si cambia con la variabile di repository PODCAST_MOTORE, senza toccare il codice.
       PODCAST_MOTORE: ${{ vars.PODCAST_MOTORE || 'gemini' }}
+      # Ripiego automatico su Chatterbox se Gemini fallisce: '0' nella variabile lo spegne.
+      PODCAST_RIPIEGO: ${{ vars.PODCAST_RIPIEGO || '1' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -78,22 +80,29 @@ jobs:
           path: |
             ~/.cache/huggingface
             ~/.cache/pip
-          key: podcast-modelli-${{ vars.PODCAST_MOTORE || 'gemini' }}-v2
+          key: podcast-modelli-v2
 
       - name: Installa dipendenze podcast
         id: dipendenze_podcast
         if: env.PODCAST == '1'
         continue-on-error: true
-        timeout-minutes: 15
+        timeout-minutes: 10
         run: |
           command -v ffmpeg || (sudo apt-get update && sudo apt-get install -y ffmpeg)
-          # Comuni ai due motori: Whisper (verifica), numeri in lettere, audio.
+          # Bastano a Gemini TTS: Whisper (verifica), numeri in lettere, audio.
           pip install faster-whisper==1.2.1 num2words==0.5.14 soundfile librosa==0.11.0
-          if [ "$PODCAST_MOTORE" = "chatterbox" ]; then
-            # Solo per la voce locale: PyTorch CPU (niente librerie CUDA) e Chatterbox (~3 GB di modelli).
-            pip install torch==2.6.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cpu
-            pip install chatterbox-tts==0.1.7 pyloudnorm==0.2.0 "setuptools<81"
-          fi
+
+      # Voce locale Chatterbox: motore scelto (PODCAST_MOTORE = chatterbox) o ripiego
+      # quando Gemini non risponde (spento con PODCAST_RIPIEGO = 0). Passo separato:
+      # se fallisce si perde solo il ripiego, non il podcast con Gemini.
+      - name: Installa Chatterbox (ripiego della voce)
+        if: env.PODCAST == '1' && (env.PODCAST_MOTORE == 'chatterbox' || env.PODCAST_RIPIEGO != '0')
+        continue-on-error: true
+        timeout-minutes: 15
+        run: |
+          # PyTorch solo CPU (i runner non hanno GPU): evita ~2 GB di librerie CUDA.
+          pip install torch==2.6.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cpu
+          pip install chatterbox-tts==0.1.7 pyloudnorm==0.2.0 "setuptools<81"
 
       # Newsletter completa: selezione, sintesi, schede, podcast (fino a 45 minuti,
       # poi si rinuncia), mail con l'MP3 allegato, post Facebook. Parte all'ora in

@@ -156,6 +156,10 @@ PODCAST_DIPENDENZE_OK = os.environ.get("PODCAST_DIPENDENZE", "success").strip() 
 # podcast_voce.wav; richiede torch e chatterbox nel passo delle dipendenze).
 PODCAST_MOTORE = os.environ.get("PODCAST_MOTORE", "gemini").strip().lower()
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+# Se Gemini non risponde (quota, chiave, blocchi) il podcast si rifà con Chatterbox
+# sul runner: stesso copione, nessuna chiamata API in più, ma 20-30 minuti e voce
+# meno italiana. "0" nella variabile di repository PODCAST_RIPIEGO lo disattiva.
+PODCAST_RIPIEGO_CHATTERBOX = os.environ.get("PODCAST_RIPIEGO", "1").strip() != "0"
 # Modelli provati in ordine: se uno non esiste (404) si passa al successivo.
 PODCAST_GEMINI_MODELLI = ["gemini-3.8-flash-tts", "gemini-3.1-flash-tts-preview",
                           "gemini-2.5-flash-preview-tts", "gemini-2.5-pro-preview-tts"]
