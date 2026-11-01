@@ -151,6 +151,22 @@ MAIL_MAX_MB           = 15
 # Il workflow passa l'esito del passo che installa torch/chatterbox: se è fallito
 # non si perde tempo a tentare. In locale (variabile assente) si tenta.
 PODCAST_DIPENDENZE_OK = os.environ.get("PODCAST_DIPENDENZE", "success").strip() in ("success", "")
+# Motore della voce: "gemini" (Gemini TTS, API di Google: voci italiane native, serve
+# il secret GEMINI_API_KEY) oppure "chatterbox" (modello locale sul runner, imita
+# podcast_voce.wav; richiede torch e chatterbox nel passo delle dipendenze).
+PODCAST_MOTORE = os.environ.get("PODCAST_MOTORE", "gemini").strip().lower()
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+# Modelli provati in ordine: se uno non esiste (404) si passa al successivo.
+PODCAST_GEMINI_MODELLI = ["gemini-3.8-flash-tts", "gemini-3.1-flash-tts-preview",
+                          "gemini-2.5-flash-preview-tts", "gemini-2.5-pro-preview-tts"]
+PODCAST_GEMINI_VOCE    = "Charon"     # voce predefinita di Gemini (informativa, maschile)
+# Note di regia: vanno nella sezione "NOTE DI REGIA" del prompt, separate dalla
+# "TRASCRIZIONE" (se scritte come frase prima del testo, il modello le legge ad alta voce).
+PODCAST_GEMINI_STILE = ("Leggi in italiano, come un medico d'urgenza che presenta ai colleghi "
+                        "la rassegna settimanale della letteratura: tono professionale, caldo "
+                        "e naturale, ritmo sostenuto ma ben scandito, senza enfasi. Breve pausa "
+                        "fra un paragrafo e l'altro. Nomi delle riviste e termini inglesi in "
+                        "pronuncia inglese.")
 PODCAST_VOCE_RIF   = "podcast_voce.wav"   # campione di voce (sintetica) da imitare
 
 PODCAST_INTRO = ("Benvenuti! Questa è la newsletter settimanale della Medicina "
