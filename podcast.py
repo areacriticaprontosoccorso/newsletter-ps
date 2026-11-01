@@ -809,13 +809,27 @@ def genera(archivio=None, copione_file=None):
         import numpy as np
         import soundfile as sf
         gemini = cfg.PODCAST_MOTORE == "gemini"
-        voce = VoceGemini() if gemini else Voce()
-        sr = voce.sr
         sezioni_testo = [intro(len(articoli))] + testi + [cfg.PODCAST_CHIUSURA]
+        risultato_gemini, voce = None, None
+        if gemini:
+            try:
+                voce = VoceGemini()
+                risultato_gemini = voce.podcast_verificato(sezioni_testo)
+            except Exception as e:
+                if not cfg.PODCAST_RIPIEGO_CHATTERBOX:
+                    raise
+                # Stesso copione, nessuna chiamata API in più: la voce la fa il runner.
+                log.warning(f"Gemini TTS non disponibile ({str(e)[:200]}): ripiego su Chatterbox")
+                esito["avvisi"].append(f"Gemini non disponibile, voce Chatterbox: {str(e)[:120]}")
+                esito["ripiego"] = "chatterbox"
+                gemini = False
+        if not gemini:
+            voce = Voce()
+        sr = voce.sr
         traccia = [np.zeros(int(0.3 * sr), dtype=np.float32)]
         confini, verifica, cursore = [], [], int(0.3 * sr)
         if gemini:
-            audio, conf_sez, verifica, punti = voce.podcast_verificato(sezioni_testo)
+            audio, conf_sez, verifica, punti = risultato_gemini
             esito["punteggio"] = round(punti, 3)
             if punti < cfg.PODCAST_SOGLIA_WHISPER:
                 esito["avvisi"].append(f"audio sotto soglia Whisper ({punti:.2f})")
@@ -876,7 +890,8 @@ def genera(archivio=None, copione_file=None):
         log.info(f"Video: {mp4} ({os.path.getsize(mp4) / 1e6:.1f} MB)")
 
         os.remove(wav)
-        esito.update(motore=cfg.PODCAST_MOTORE, modello=getattr(voce, "modello_usato", None),
+        esito.update(motore="gemini" if gemini else "chatterbox",
+                     modello=getattr(voce, "modello_usato", None),
                      voce=cfg.PODCAST_GEMINI_VOCE if gemini else cfg.PODCAST_VOCE_RIF)
         esito.update(ok=True, mp3=mp3, mp4=mp4, durata=round(durata, 1),
                      velocita=round(atempo, 3), verifica=verifica,
