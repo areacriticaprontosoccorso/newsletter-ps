@@ -51,6 +51,7 @@ Da impostare in *Settings → Secrets and variables → Actions*. I valori non s
 | `DESTINATARI` | Indirizzi email separati da virgola. |
 | `FB_PAGE_ID` | ID della pagina Facebook. |
 | `FB_PAGE_TOKEN` | Page access token Facebook. |
+| `GEMINI_API_KEY` | Chiave API Gemini (Google AI Studio) per la voce del podcast. Senza, il podcast salta. |
 
 `GMAIL_USER`, `GMAIL_TOKEN` e `DESTINATARI` sono richiesti solo per l'invio reale: in `DRY_RUN` e `SOLO_FACEBOOK` non vengono controllati (`valida_config`).
 
@@ -99,17 +100,17 @@ Tutti i parametri stanno in `config.py`. I principali:
 
 Ogni lunedì il workflow produce un podcast di circa **due minuti** (una voce, italiano, riviste e termini inglesi in pronuncia inglese): il **video MP4 parte allegato alla mail** ai `DESTINATARI` e il **video** esce su Facebook nel post del primo articolo.
 
-**Quando parte la mail** — l'orario del run lo decide cron-job.org (lunedì 13:00), non il codice. Dentro il run, `newsletter_rss.py` genera schede e podcast (`genera_podcast`, un processo separato) e solo dopo invia la mail: con la cache dei modelli calda la mail esce circa 20–30 minuti dopo l'avvio. Se il podcast fallisce, o supera `PODCAST_TIMEOUT_MAIL` (45 minuti), il processo viene chiuso e la mail parte **senza** podcast, come prima. Allegati in ordine di preferenza (`PODCAST_MAIL_ALLEGATI`): il video MP4 (~4 MB) e, se Gmail rifiuta l'invio, l'MP3 (~2 MB), poi nessuno; si scarta ciò che porterebbe gli allegati oltre `MAIL_MAX_MB` (15). La mail si carica con l'endpoint `/upload` di Gmail (`message/rfc822`, fino a 35 MB): il campo `raw` nel JSON reggeva solo pochi MB. Nella mail una riga sotto l'intestazione segnala l'allegato.
+**Quando parte la mail** — l'orario del run lo decide cron-job.org (lunedì 13:00), non il codice. Dentro il run, `newsletter_rss.py` genera schede e podcast (`genera_podcast`, un processo separato) e solo dopo invia la mail: con Gemini la mail esce pochi minuti dopo l'avvio (20–30 con Chatterbox). Se il podcast fallisce, o supera `PODCAST_TIMEOUT_MAIL` (45 minuti), il processo viene chiuso e la mail parte **senza** podcast, come prima. Allegati in ordine di preferenza (`PODCAST_MAIL_ALLEGATI`): il video MP4 (~4 MB) e, se Gmail rifiuta l'invio, l'MP3 (~2 MB), poi nessuno; si scarta ciò che porterebbe gli allegati oltre `MAIL_MAX_MB` (15). La mail si carica con l'endpoint `/upload` di Gmail (`message/rfc822`, fino a 35 MB): il campo `raw` nel JSON reggeva solo pochi MB. Nella mail una riga sotto l'intestazione segnala l'allegato.
 
 1. **Copione** — una chiamata a Claude (`PODCAST_PROMPT`) scrive un paragrafo per articolo a partire dall'archivio del digest. Intro e chiusura sono fisse (`PODCAST_INTRO`, `PODCAST_CHIUSURA`).
 2. **Controllo** — ogni numero del copione deve comparire nell'abstract o nella sintesi dello stesso articolo (ammessi arrotondamenti, e scarti piccoli solo dopo "circa", "oltre", "quasi"); lunghezza fra `PODCAST_PAROLE_MIN` e `PODCAST_PAROLE_MAX`, frasi brevi. Se qualcosa non torna Claude riscrive (massimo 3 tentativi), poi il podcast salta.
-3. **Voce** — [Chatterbox](https://github.com/resemble-ai/chatterbox) gira sul runner, senza API. I termini fra `[[...]]` nel copione sono generati in voce inglese e uniti alla frase senza pause; le parole inglesi brevi (`trial`, `cluster`…) usano la grafia fonetica di `PODCAST_GRAFIA_FONETICA`. Il timbro è quello di `podcast_voce.wav` (una voce sintetica, non di una persona).
-4. **Verifica** — ogni frase viene ritrascritta con Whisper e confrontata col testo; sotto `PODCAST_SOGLIA_WHISPER` si rigenera (fino a `PODCAST_TENTATIVI` volte).
+3. **Voce** — **Gemini TTS** (API di Google, `PODCAST_MOTORE = "gemini"`, predefinito): voce italiana nativa `PODCAST_GEMINI_VOCE` (Charon), tutto il podcast in **una sola chiamata**. Lo stile è nelle *note di regia* del prompt (`PODCAST_GEMINI_STILE`), separate dalla trascrizione: scritto come frase iniziale, il modello lo leggerebbe ad alta voce. I modelli di `PODCAST_GEMINI_MODELLI` si provano in ordine: se uno non esiste o ha esaurito la quota giornaliera si passa al successivo. In alternativa `PODCAST_MOTORE = "chatterbox"` (variabile di repository `PODCAST_MOTORE`): modello locale sul runner che imita `podcast_voce.wav`, più lento e con accento meno italiano.
+4. **Verifica** — l'audio viene ritrascritto con Whisper e confrontato col testo; sotto `PODCAST_SOGLIA_WHISPER` si rigenera (fino a `PODCAST_TENTATIVI` volte, tenendo il tentativo migliore). Dalle parole di Whisper si ricava anche l'inizio di ogni articolo, che sincronizza le schede del video.
 5. **Uscite** — `podcast/podcast-sNN-AAAA.mp3`, il video `.mp4` (copertina + schede degli articoli che scorrono mentre se ne parla), `copione.txt` ed `esito.json` con il punteggio di ogni frase: tutto nell'artifact del run.
 
 **Post del lunedì** — è l'unico post Facebook della settimana (`FB_SCHEDE = False`). `newsletter_rss.py` ne salva i dati (`podcast/primo_post.json`) e lo pubblica `python podcast.py pubblica`, alle `FB_ORA`: video del podcast + didascalia con l'elenco di tutti gli articoli (titolo, badge, rivista, link PubMed), preceduta da `PODCAST_FB_TESTA_ELENCO`. **Se il podcast non è pronto o Facebook rifiuta il video, quella settimana sulla Pagina non esce nulla** (nessun ripiego sull'immagine); con `FB_SCHEDE = True` tornano i post 2–5 delle schede e il ripiego sull'immagine. Anche il messaggio per il gruppo (`post_gruppo.txt`) viene scritto qui, col link al post.
 
-**Tempi e costi** — circa 20–30 minuti in più per corsa (la prima più lunga: scarica ~3 GB di modelli, poi in cache). Costo API: una chiamata in più a settimana (pochi centesimi; di più solo se il controllo chiede correzioni). I minuti di GitHub Actions su repo pubblico sono gratuiti.
+**Tempi e costi** — con Gemini pochi minuti per corsa. Costi API: una chiamata a Claude per il copione (pochi centesimi) e 1–3 richieste a Gemini TTS. Il piano gratuito di Gemini concede **10 richieste al giorno per modello**: basta per una puntata settimanale, ma le prove nello stesso giorno lo consumano; con la fatturazione attiva il costo è circa 0,04 $ al minuto di audio. I minuti di GitHub Actions su repo pubblico sono gratuiti.
 
 **Disattivarlo** — input `podcast` del *Run workflow* su `false`, oppure `PODCAST_ABILITATO = False` in `config.py`: tutto torna esattamente come prima.
 
@@ -132,7 +133,7 @@ DRY_RUN=1 python podcast.py pubblica     # scrive solo post_facebook_podcast.txt
 - **API Gruppi Facebook deprecata** (aprile 2024) — la pubblicazione nei gruppi è solo manuale. `post_facebook.txt` esiste anche per copiare a mano la didascalia in un gruppo.
 - **Installazione Playwright fragile** — in CI conviene `timeout-minutes` e `continue-on-error` sullo step di install per non bloccare l'invio del lunedì.
 - **`claude-sonnet-5` e `temperature`/prefill** — vedi sopra: HTTP 400 garantito.
-- **Podcast: memoria e tempo** — Chatterbox su CPU usa ~6 GB di RAM e circa 4–8 secondi di calcolo per secondo di audio (circa 17 minuti per un podcast sul runner). Oltre `PODCAST_TIMEOUT_MAIL` viene interrotto: la mail parte senza podcast e su Facebook quella settimana non esce nulla. Le dipendenze si installano **prima** di *Esegui newsletter*; se quel passo fallisce, la newsletter non tenta nemmeno il podcast.
+- **Podcast: quota e blocchi di Gemini** — oltre la quota il server risponde 429 (si passa al modello successivo); a volte risponde senza audio con `finishReason: SAFETY` anche su testi innocui (si riprova). Con Chatterbox invece: ~6 GB di RAM e circa 17 minuti per podcast sul runner. Oltre `PODCAST_TIMEOUT_MAIL` viene interrotto: la mail parte senza podcast e su Facebook quella settimana non esce nulla. Le dipendenze si installano **prima** di *Esegui newsletter*; se quel passo fallisce, la newsletter non tenta nemmeno il podcast.
 - **Podcast: video su Facebook** — il caricamento usa `graph-video.facebook.com` con lo stesso token della Pagina (permesso `pages_manage_posts`). Se Facebook rifiuta il video, il log riporta l'errore e il post non esce (con `FB_SCHEDE = False` non c'è ripiego sull'immagine).
 - **Modello Sonnet** — le versioni delle librerie Google sono pinnate nel workflow apposta: un loro breaking change non deve poter bloccare l'invio.
 
@@ -146,7 +147,7 @@ DRY_RUN=1 python podcast.py pubblica     # scrive solo post_facebook_podcast.txt
 | `config.py` | Tutti i parametri: riviste, vincoli, prompt, secrets, branding. |
 | `.github/workflows/newsletter.yml` | Workflow `workflow_dispatch` (chiamato da cron-job.org). |
 | `podcast.py` | Podcast settimanale (copione, voce, video) e post Facebook del lunedì. |
-| `podcast_voce.wav` | Campione della voce del podcast (sintetica). |
+| `podcast_voce.wav` | Campione di voce imitato da Chatterbox (usato solo con `PODCAST_MOTORE = "chatterbox"`). |
 | `logo.jpg` | Logo referenziato da `LOGO_URL` nelle email. |
 | `logo-medicina-urgenza.png` | Logo usato nella copertina del video del podcast. |
 
