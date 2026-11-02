@@ -83,6 +83,7 @@ def _blocco_articolo(i, a):
             f"pmid: {a['pmid']}\n"
             f"rivista: {a['rivista']}\n"
             f"disegno: {a.get('disegno') or 'n/d'}\n"
+            f"badge: {(cfg.TIPI_ARTICOLO.get(a.get('tipo') or '') or {}).get('label', 'n/d')}\n"
             f"titolo: {a.get('titolo_it') or a['titolo']}\n"
             f"sintesi: {a.get('sintesi_it') or ''}\n"
             f"rilevanza: {a.get('rilevanza') or ''}\n"
@@ -165,12 +166,29 @@ def limiti_parole(n):
     return round(cfg.PODCAST_PAROLE_MIN * f), round(cfg.PODCAST_PAROLE_MAX * f)
 
 
-def intro(n):
-    return cfg.PODCAST_INTRO.replace("{Articoli}", _num_it(n).capitalize())
+def intro(n, apertura=None):
+    """Saluto fisso; la frase d'apertura di Claude va prima di "Buon ascolto"."""
+    t = cfg.PODCAST_INTRO.replace("{Articoli}", _num_it(n).capitalize())
+    if not apertura:
+        return t
+    apertura = apertura.strip()
+    if not apertura.endswith((".", "!", "?")):
+        apertura += "."
+    m = re.search(r"\s*Buon ascolto[.!]?\s*$", t)
+    return (t[:m.start()] + " " + apertura + " " + t[m.start():].strip()) if m else t + " " + apertura
 
 
-def problemi_copione(articoli, testi):
+def problemi_copione(articoli, testi, apertura=None, con_apertura=True):
     problemi = []
+    if con_apertura:
+        if not apertura:
+            problemi.append('manca l\'APERTURA (oggetto con "pmid": "apertura")')
+        else:
+            if conta_parole(apertura) > cfg.PODCAST_APERTURA_MAX_PAROLE + 3:
+                problemi.append(f"apertura di {conta_parole(apertura)} parole, massimo "
+                                f"{cfg.PODCAST_APERTURA_MAX_PAROLE}")
+            if re.search(r"\d", testo_visibile(apertura)):
+                problemi.append("l'apertura non deve contenere numeri")
     p_min, p_max = limiti_parole(len(articoli))
     for i, (a, t) in enumerate(zip(articoli, testi), 1):
         if not t:
@@ -186,7 +204,7 @@ def problemi_copione(articoli, testi):
         per_max = round(p_max / len(articoli))
         if conta_parole(t) > per_max + 12:
             problemi.append(f"articolo {i}: {conta_parole(t)} parole, massimo {per_max}: "
-                            f"tieni un solo risultato e un solo limite")
+                            f"tieni un solo risultato e il peso dell'evidenza")
         lunghe = [f for f in dividi_frasi(testo_visibile(t)) if len(f.split()) > 34]
         if lunghe:
             problemi.append(f"articolo {i}: frase troppo lunga per l'ascolto: '{lunghe[0][:60]}...'")
@@ -199,43 +217,49 @@ def problemi_copione(articoli, testi):
 
 
 def _testi_da_risposta(risposta, articoli):
+    """(testi degli articoli, frase d'apertura o None)."""
     voci = [v for v in nr._estrai_json_array(risposta) if isinstance(v, dict)]
+    apertura = next(((v.get("testo") or "").strip() for v in voci
+                     if str(v.get("pmid", "")).strip().lower() == "apertura"), None)
+    voci = [v for v in voci if str(v.get("pmid", "")).strip().lower() != "apertura"]
     per_pmid = {str(v.get("pmid", "")).strip(): (v.get("testo") or "").strip() for v in voci}
     testi = [per_pmid.get(str(a["pmid"]), "") for a in articoli]
     if not all(testi) and len(voci) == len(articoli):
         # pmid storpiati ma numero giusto di paragrafi: vale l'ordine
         testi = [(v.get("testo") or "").strip() for v in voci]
-    return testi
+    return testi, apertura
 
 
 def scrivi_copione(articoli, copione_file=None):
     n = len(articoli)
     if copione_file:
         with open(copione_file, encoding="utf-8") as f:
-            testi = _testi_da_risposta(f.read(), articoli)
-        problemi = problemi_copione(articoli, testi)
+            testi, apertura = _testi_da_risposta(f.read(), articoli)
+        # copioni di prova del vecchio formato (senza apertura): si accettano
+        problemi = problemi_copione(articoli, testi, apertura, con_apertura=apertura is not None)
         if problemi:
             raise RuntimeError("Copione di prova non valido: " + "; ".join(problemi))
-        return testi
+        return testi, apertura
 
     p_min, p_max = limiti_parole(n)
     prompt = cfg.PODCAST_PROMPT.format(
         n=n, min_parole=p_min, max_parole=p_max,
         per_min=round(p_min / n), per_max=round(p_max / n),
+        max_apertura=cfg.PODCAST_APERTURA_MAX_PAROLE,
         blocchi="\n".join(_blocco_articolo(i, a) for i, a in enumerate(articoli, 1)),
     )
     aggiunta, problemi = "", []
     for tentativo in range(1, 4):
         risposta = nr.chiama_claude(prompt + aggiunta, max_tokens=3000)
         try:
-            testi = _testi_da_risposta(risposta, articoli)
-            problemi = problemi_copione(articoli, testi)
+            testi, apertura = _testi_da_risposta(risposta, articoli)
+            problemi = problemi_copione(articoli, testi, apertura)
         except ValueError as e:
-            testi, problemi = [], [f"risposta non in formato JSON: {e}"]
+            testi, apertura, problemi = [], None, [f"risposta non in formato JSON: {e}"]
         if not problemi:
             log.info(f"Copione pronto al tentativo {tentativo}: "
                      f"{sum(conta_parole(t) for t in testi)} parole")
-            return testi
+            return testi, apertura
         log.warning(f"Copione, tentativo {tentativo}: " + " | ".join(problemi))
         aggiunta = ("\n\nLA TUA VERSIONE PRECEDENTE AVEVA QUESTI PROBLEMI. Riscrivila "
                     "correggendoli e rispettando tutte le regole:\n- " + "\n- ".join(problemi)
@@ -247,8 +271,8 @@ def scrivi_copione(articoli, copione_file=None):
     tot = sum(conta_parole(t) for t in testi if t)
     if testi and all(testi) and solo_lunghezza and tot <= p_max * 1.2:
         log.warning(f"Copione accettato oltre il limite ({tot} parole, massimo {p_max}): "
-                    "il podcast durerà più di due minuti")
-        return testi
+                    "il podcast sarà più lungo del previsto")
+        return testi, apertura
     raise RuntimeError("Copione non valido dopo 3 tentativi: " + "; ".join(problemi))
 
 
@@ -760,7 +784,117 @@ class VoceGemini:
             verifica.append({"frase": vis[k], "sentito": sent.strip(), "punteggio": round(pk, 3)})
         sentito = "".join(w for w, _, _ in parole_tot)
         punti = difflib.SequenceMatcher(None, _norm(" ".join(vis)), _norm(sentito)).ratio()
-        return audio, confini, verifica, punti
+        return audio, confini, verifica, punti, parole_tot
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SIGLA E SOTTOTITOLI
+# ═══════════════════════════════════════════════════════════════════════════════
+def sigla(sr, finale=False):
+    """Sigla breve sintetizzata qui (nessun brano esterno, nessun diritto): arpeggio di
+    La maggiore con timbro di campana su un accordo morbido. Apertura ~3 s, chiusura ~2 s.
+    Il volume si regola dopo, rispetto alla voce."""
+    import numpy as np
+    durata = 2.0 if finale else 3.2
+    n = int(durata * sr)
+    t = np.arange(n) / sr
+    out = np.zeros(n)
+    note = [(0.0, 659.25), (0.2, 880.0)] if finale else \
+        [(0.0, 440.0), (0.15, 554.37), (0.30, 659.25), (0.45, 880.0)]
+    for t0, f in note:
+        i = int(t0 * sr)
+        tt = t[: n - i]
+        inv = np.minimum(tt / 0.004, 1) * np.exp(-tt * 3.0)
+        out[i:] += inv * sum(a * np.sin(2 * np.pi * f * k * tt)
+                             for k, a in ((1, 1.0), (2, 0.3), (3, 0.1), (4.2, 0.04)))
+    inizio = 0.25 if finale else 0.45
+    inv = np.clip((t - inizio) / 0.5, 0, 1) * np.exp(-np.clip(t - inizio, 0, None) * 1.1)
+    for f, a in ((110.0, 0.5), (220.0, 0.35), (277.18, 0.3), (329.63, 0.3)):
+        out += a * inv * np.sin(2 * np.pi * f * t)
+    k = int(0.5 * sr)
+    out[-k:] *= np.linspace(1, 0, k)
+    return (out / np.max(np.abs(out))).astype(np.float32)
+
+
+def tempi_parole_copione(sezioni_vis, parole):
+    """Ogni parola del copione (testo esatto, con cifre e termini inglesi) con i tempi
+    della parola corrispondente sentita da Whisper; le parole non ritrovate prendono
+    tempi interpolati fra le vicine."""
+    copione = [w for s in sezioni_vis for w in s.split()]
+    s_tok, s_map, w_tok, w_map = [], [], [], []
+    for i, w in enumerate(copione):
+        for t in _norm(w).split():
+            s_tok.append(t)
+            s_map.append(i)
+    for j, (w, _, _) in enumerate(parole):
+        for t in _norm(w).split():
+            w_tok.append(t)
+            w_map.append(j)
+    tempi = [None] * len(copione)
+    for a, b, size in difflib.SequenceMatcher(None, s_tok, w_tok, autojunk=False).get_matching_blocks():
+        for k in range(size):
+            i, j = s_map[a + k], w_map[b + k]
+            t0, t1 = parole[j][1], parole[j][2]
+            tempi[i] = [t0, t1] if tempi[i] is None else [tempi[i][0], max(tempi[i][1], t1)]
+    noti = [i for i, x in enumerate(tempi) if x]
+    if not noti:
+        return []
+    i = 0
+    while i < len(tempi):
+        if tempi[i] is not None:
+            i += 1
+            continue
+        j = i
+        while j < len(tempi) and tempi[j] is None:
+            j += 1
+        prima = tempi[i - 1][1] if i else tempi[noti[0]][0]
+        dopo = tempi[j][0] if j < len(tempi) else tempi[noti[-1]][1] + 0.4 * (j - i)
+        passo = max(0.05, (dopo - prima) / (j - i))
+        for k in range(i, j):
+            tempi[k] = [prima + passo * (k - i), prima + passo * (k - i + 1)]
+        i = j
+    return [(w, t[0], t[1]) for w, t in zip(copione, tempi)]
+
+
+def _ass_tempo(s):
+    s = max(0.0, s)
+    return f"{int(s // 3600)}:{int(s % 3600 // 60):02d}:{s % 60:05.2f}"
+
+
+def scrivi_sottotitoli(tempi, atempo, dest, max_car=34):
+    """Sottotitoli ASS (testo bianco su riquadro scuro, in basso) da (parola, inizio, fine)."""
+    righe, cur = [], []
+    for w, t0, t1 in tempi:
+        if cur and (len(" ".join(x[0] for x in cur) + " " + w) > max_car or t0 - cur[-1][2] > 0.7):
+            righe.append(cur)
+            cur = []
+        cur.append((w, t0, t1))
+        if w.endswith((".", "!", "?", ":")):
+            righe.append(cur)
+            cur = []
+    if cur:
+        righe.append(cur)
+    eventi = []
+    for k, r in enumerate(righe):
+        ini = r[0][1] / atempo
+        fin = max(r[-1][2] / atempo, ini + 0.8)
+        if k + 1 < len(righe):
+            prossimo = righe[k + 1][0][1] / atempo
+            fin = prossimo if prossimo - fin < 0.35 else fin
+        testo = " ".join(x[0] for x in r).replace("{", "(").replace("}", ")")
+        eventi.append(f"Dialogue: 0,{_ass_tempo(ini)},{_ass_tempo(fin)},Base,,0,0,0,,{testo}")
+    intest = (
+        "[Script Info]\nScriptType: v4.00+\nPlayResX: {l}\nPlayResY: {a}\nWrapStyle: 2\n\n"
+        "[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
+        "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, "
+        "Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
+        "Style: Base,DejaVu Sans,46,&H00FFFFFF,&H00FFFFFF,&H30000000,&H30000000,1,0,0,0,"
+        "100,100,0,0,3,14,0,2,60,60,24,1\n\n"
+        "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+    ).format(l=VIDEO_L, a=VIDEO_A)
+    with open(dest, "w", encoding="utf-8") as f:
+        f.write(intest + "\n".join(eventi) + "\n")
+    return dest
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -836,7 +970,7 @@ def genera_copertina(articoli, wl, dest):
         return None
 
 
-def genera_video(mp3, sezioni, immagini, copertina, dest):
+def genera_video(mp3, sezioni, immagini, copertina, dest, sottotitoli=None):
     """sezioni: [(inizio_s, fine_s), ...] = intro, articoli..., chiusura.
     Sull'intro e sulla chiusura la copertina, su ogni articolo la sua scheda."""
     n_art = len(sezioni) - 2
@@ -851,20 +985,46 @@ def genera_video(mp3, sezioni, immagini, copertina, dest):
         for img, (ini, fin) in zip(sequenza, sezioni):
             f.write(f"file '{os.path.abspath(img)}'\nduration {max(0.5, fin - ini):.3f}\n")
         f.write(f"file '{os.path.abspath(sequenza[-1])}'\n")
-    vf = (f"scale={VIDEO_L}:{VIDEO_A}:force_original_aspect_ratio=decrease,"
-          f"pad={VIDEO_L}:{VIDEO_A}:(ow-iw)/2:(oh-ih)/2:color=white,format=yuv420p")
-    subprocess.run(
-        ["ffmpeg", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", lista,
-         "-i", mp3, "-vf", vf, "-r", "25", "-c:v", "libx264", "-preset", "veryfast",
-         "-tune", "stillimage", "-crf", "23", "-c:a", "aac", "-b:a", "128k",
-         "-shortest", "-movflags", "+faststart", dest],
-        check=True)
-    return dest
+    base = (f"scale={VIDEO_L}:{VIDEO_A}:force_original_aspect_ratio=decrease,"
+            f"pad={VIDEO_L}:{VIDEO_A}:(ow-iw)/2:(oh-ih)/2:color=white")
+
+    def esegui(vf):
+        subprocess.run(
+            ["ffmpeg", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", lista,
+             "-i", mp3, "-vf", vf, "-r", "25", "-c:v", "libx264", "-preset", "veryfast",
+             "-crf", "23", "-c:a", "aac", "-b:a", "128k",
+             "-shortest", "-movflags", "+faststart", dest],
+            check=True)
+    esegui(f"{base},format=yuv420p")
+    if not sottotitoli:
+        return dest, False
+    # Sottotitoli in una seconda passata sul video già montato: applicati direttamente
+    # al concat delle immagini (un fotogramma per scheda) si perdeva la copertina.
+    tmp = dest + ".sottotitoli.mp4"
+    try:
+        subprocess.run(
+            ["ffmpeg", "-y", "-loglevel", "error", "-i", dest,
+             "-vf", f"subtitles=filename={sottotitoli},format=yuv420p",
+             "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "copy",
+             "-movflags", "+faststart", tmp], check=True)
+        os.replace(tmp, dest)
+        return dest, True
+    except subprocess.CalledProcessError as e:
+        log.warning(f"Sottotitoli non applicati ({e}): video senza")
+        return dest, False
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # GENERA
 # ═══════════════════════════════════════════════════════════════════════════════
+def misura_lufs(wav):
+    """Loudness integrata (LUFS) di un file, con il filtro ebur128 di ffmpeg."""
+    r = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-i", wav, "-af", "ebur128",
+                        "-f", "null", "-"], capture_output=True, text=True)
+    m = re.findall(r"I:\s+(-?[\d.]+) LUFS", r.stderr)
+    return float(m[-1]) if m else -20.0
+
+
 def genera(archivio=None, copione_file=None):
     os.makedirs(cfg.PODCAST_DIR, exist_ok=True)
     esito = {"ok": False, "avvisi": []}
@@ -877,16 +1037,19 @@ def genera(archivio=None, copione_file=None):
         log.info(f"=== Podcast — settimana {wl['settimana']}/{wl['anno']} "
                  f"({len(articoli)} articoli, {percorso}) ===")
 
-        testi = scrivi_copione(articoli, copione_file)
+        testi, apertura = scrivi_copione(articoli, copione_file)
         esito["copione"] = testi
+        esito["apertura"] = apertura
+        testo_intro = intro(len(articoli), apertura)
         with open(os.path.join(cfg.PODCAST_DIR, "copione.txt"), "w", encoding="utf-8") as f:
-            f.write("\n\n".join([intro(len(articoli))] + [testo_visibile(t) for t in testi]
+            f.write("\n\n".join([testo_intro] + [testo_visibile(t) for t in testi]
                                 + [cfg.PODCAST_CHIUSURA]) + "\n")
 
         import numpy as np
         import soundfile as sf
         gemini = cfg.PODCAST_MOTORE == "gemini"
-        sezioni_testo = [intro(len(articoli))] + testi + [cfg.PODCAST_CHIUSURA]
+        sezioni_testo = [testo_intro] + testi + [cfg.PODCAST_CHIUSURA]
+        sezioni_vis = [testo_visibile(s) for s in sezioni_testo]
         risultato_gemini, voce = None, None
         if gemini:
             try:
@@ -903,10 +1066,13 @@ def genera(archivio=None, copione_file=None):
         if not gemini:
             voce = Voce()
         sr = voce.sr
-        traccia = [np.zeros(int(0.3 * sr), dtype=np.float32)]
-        confini, verifica, cursore = [], [], int(0.3 * sr)
+        # sigla d'apertura (il volume si regola alla fine, sulla voce) o breve silenzio
+        sigla_ini = sigla(sr) if cfg.PODCAST_SIGLA else np.zeros(0, dtype=np.float32)
+        traccia = [sigla_ini, np.zeros(int(0.3 * sr), dtype=np.float32)]
+        confini, verifica, cursore = [], [], len(sigla_ini) + int(0.3 * sr)
+        tempi_parole = []           # (parola del copione, inizio, fine) per i sottotitoli
         if gemini:
-            audio, conf_sez, verifica, punti = risultato_gemini
+            audio, conf_sez, verifica, punti, parole = risultato_gemini
             esito["punteggio"] = round(punti, 3)
             if punti < cfg.PODCAST_SOGLIA_WHISPER:
                 esito["avvisi"].append(f"audio sotto soglia Whisper ({punti:.2f})")
@@ -914,8 +1080,12 @@ def genera(archivio=None, copione_file=None):
                 log.info(f"  {v['punteggio']:.2f} | {v['frase'][:70]}")
             off = cursore / sr
             confini = [(off + i0, off + i1) for i0, i1 in conf_sez]
+            tempi_parole = tempi_parole_copione(sezioni_vis, [(w, off + a0, off + a1)
+                                                              for w, a0, a1 in parole])
             traccia.append(audio)
             cursore += len(audio)
+            traccia.append(np.zeros(int(0.45 * sr), dtype=np.float32))
+            cursore += int(0.45 * sr)
             sezioni_testo = []          # niente ciclo per frase
         for s, testo in enumerate(sezioni_testo):
             inizio = cursore
@@ -929,32 +1099,64 @@ def genera(archivio=None, copione_file=None):
                 if j:
                     traccia.append(np.zeros(int(0.2 * sr), dtype=np.float32))
                     cursore += int(0.2 * sr)
+                # Chatterbox non dà i tempi delle parole: si distribuiscono sulla frase
+                parole_fr = testo_visibile(fr).split()
+                durata_fr = len(audio) / sr
+                peso = [len(w) + 1 for w in parole_fr]
+                t = cursore / sr
+                for w, q in zip(parole_fr, peso):
+                    d = durata_fr * q / sum(peso)
+                    tempi_parole.append((w, t, t + d))
+                    t += d
                 traccia.append(audio)
                 cursore += len(audio)
             confini.append((inizio / sr, cursore / sr))
             pausa = int(0.45 * sr)
             traccia.append(np.zeros(pausa, dtype=np.float32))
             cursore += pausa
-        traccia.append(np.zeros(int(0.3 * sr), dtype=np.float32))
-        grezzo = np.concatenate(traccia)
-        wav = os.path.join(cfg.PODCAST_DIR, "podcast.wav")
-        sf.write(wav, grezzo, sr)
-
-        durata_grezza = len(grezzo) / sr
-        atempo = min(max(durata_grezza / (cfg.PODCAST_DURATA_MAX - 0.5), 1.0), cfg.PODCAST_ATEMPO_MAX)
+        # La voce si normalizza da sola (-16 LUFS); le sigle si aggiungono dopo a un
+        # livello fisso rispetto alla voce: normalizzando tutto insieme il loudnorm
+        # alzerebbe proprio la sigla, che è la parte più bassa.
+        off_ini = len(sigla_ini) / sr
+        voce_raw = np.concatenate(traccia[1:])
+        wav = os.path.join(cfg.PODCAST_DIR, "podcast_voce.wav")
+        sf.write(wav, voce_raw, sr)
+        durata_voce = len(voce_raw) / sr
+        sigla_fin = sigla(sr, finale=True) if cfg.PODCAST_SIGLA else None
+        coda = (len(sigla_fin) / sr if sigla_fin is not None else 0) + 0.3
+        atempo = min(max(durata_voce / (cfg.PODCAST_DURATA_MAX - off_ini - coda - 0.5), 1.0),
+                     cfg.PODCAST_ATEMPO_MAX)
         mp3 = os.path.join(cfg.PODCAST_DIR, f"podcast-s{str(wl['settimana']).zfill(2)}-{wl['anno']}.mp3")
-        subprocess.run(
-            ["ffmpeg", "-y", "-loglevel", "error", "-i", wav,
-             "-af", f"atempo={atempo:.4f},loudnorm=I=-16:TP=-1.5:LRA=11",
-             "-ar", "44100", "-ac", "1", "-b:a", "128k",
-             "-metadata", f"title=EM Weekly Digest — podcast settimana {wl['settimana']}/{wl['anno']}",
-             mp3], check=True)
-        durata = durata_grezza / atempo
+        titolo = f"title=EM Weekly Digest — podcast settimana {wl['settimana']}/{wl['anno']}"
+        voce_norm = f"atempo={atempo:.4f},loudnorm=I=-16:TP=-1.5:LRA=11,aresample=44100"
+        if cfg.PODCAST_SIGLA:
+            f_ini = os.path.join(cfg.PODCAST_DIR, "sigla_ini.wav")
+            f_fin = os.path.join(cfg.PODCAST_DIR, "sigla_fin.wav")
+            sf.write(f_ini, sigla_ini, sr)
+            sf.write(f_fin, sigla_fin, sr)
+            obiettivo = -16 + cfg.PODCAST_SIGLA_DB
+            g_ini = obiettivo - misura_lufs(f_ini)
+            g_fin = obiettivo - misura_lufs(f_fin)
+            filtro = (f"[0:a]aresample=44100,volume={g_ini:.2f}dB[a0];[1:a]{voce_norm}[a1];"
+                      f"[2:a]aresample=44100,volume={g_fin:.2f}dB,apad=pad_dur=0.3[a2];"
+                      f"[a0][a1][a2]concat=n=3:v=0:a=1[out]")
+            ingressi = ["-i", f_ini, "-i", wav, "-i", f_fin]
+        else:
+            filtro = f"[0:a]{voce_norm},apad=pad_dur=0.3[out]"
+            ingressi = ["-i", wav]
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", *ingressi,
+                        "-filter_complex", filtro, "-map", "[out]",
+                        "-ar", "44100", "-ac", "1", "-b:a", "128k", "-metadata", titolo, mp3],
+                       check=True)
+        durata = off_ini + durata_voce / atempo + coda
         if durata > cfg.PODCAST_DURATA_MAX + 1:
             esito["avvisi"].append(f"durata {durata:.0f}s oltre il limite anche accelerando")
-        log.info(f"Audio: {durata:.1f}s (grezzo {durata_grezza:.1f}s, velocità x{atempo:.2f}) -> {mp3}")
+        log.info(f"Audio: {durata:.1f}s (voce {durata_voce:.1f}s, velocità x{atempo:.2f}) -> {mp3}")
 
-        sezioni = [(a / atempo, b / atempo) for a, b in confini]
+        def mappa(t):          # tempo nella traccia grezza -> tempo nell'MP3
+            return off_ini + max(0.0, t - off_ini) / atempo
+
+        sezioni = [(mappa(a), mappa(b)) for a, b in confini]
         # le diapositive coprono anche le pause: ognuna dura fino all'inizio della successiva
         sezioni = [(sezioni[i][0] if i else 0.0,
                     sezioni[i + 1][0] if i + 1 < len(sezioni) else durata)
@@ -963,10 +1165,19 @@ def genera(archivio=None, copione_file=None):
         immagini = [f"{prefisso}{str(i).zfill(2)}.png" for i in range(1, len(articoli) + 1)]
         copertina = genera_copertina(articoli, wl, os.path.join(cfg.PODCAST_DIR, "copertina.png"))
         mp4 = os.path.join(cfg.PODCAST_DIR, f"podcast-s{str(wl['settimana']).zfill(2)}-{wl['anno']}.mp4")
-        genera_video(mp3, sezioni, immagini, copertina, mp4)
+        ass = None
+        if cfg.PODCAST_SOTTOTITOLI and tempi_parole:
+            ass = scrivi_sottotitoli([(w, mappa(a), mappa(b)) for w, a, b in tempi_parole], 1.0,
+                                     os.path.join(cfg.PODCAST_DIR, "sottotitoli.ass"))
+        _, con_sottotitoli = genera_video(mp3, sezioni, immagini, copertina, mp4, sottotitoli=ass)
+        esito["sottotitoli"] = con_sottotitoli
         log.info(f"Video: {mp4} ({os.path.getsize(mp4) / 1e6:.1f} MB)")
 
-        os.remove(wav)
+        for f in ("podcast_voce.wav", "sigla_ini.wav", "sigla_fin.wav"):
+            try:
+                os.remove(os.path.join(cfg.PODCAST_DIR, f))
+            except OSError:
+                pass
         esito.update(motore="gemini" if gemini else "chatterbox",
                      modello=getattr(voce, "modello_usato", None),
                      voce=cfg.PODCAST_GEMINI_VOCE if gemini else cfg.PODCAST_VOCE_RIF)
