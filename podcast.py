@@ -201,12 +201,10 @@ def problemi_copione(articoli, testi, apertura=None, con_apertura=True):
             problemi.append(
                 f"articolo {i}: numeri non presenti nell'abstract o nella sintesi "
                 f"({', '.join(fuori)}): riportali come nella fonte o eliminali")
-        if con_apertura and not re.search(r"Per il PS\s*:", t, re.I):
-            problemi.append(f'articolo {i}: manca la frase finale che comincia con "Per il PS:"')
         per_max = round(p_max / len(articoli))
         if conta_parole(t) > per_max + 12:
             problemi.append(f"articolo {i}: {conta_parole(t)} parole, massimo {per_max}: "
-                            f"tieni un solo risultato, il peso dell'evidenza e la frase Per il PS")
+                            f"tieni un solo risultato e il peso dell'evidenza")
         lunghe = [f for f in dividi_frasi(testo_visibile(t)) if len(f.split()) > 34]
         if lunghe:
             problemi.append(f"articolo {i}: frase troppo lunga per l'ascolto: '{lunghe[0][:60]}...'")
@@ -997,16 +995,23 @@ def genera_video(mp3, sezioni, immagini, copertina, dest, sottotitoli=None):
              "-crf", "23", "-c:a", "aac", "-b:a", "128k",
              "-shortest", "-movflags", "+faststart", dest],
             check=True)
-    if sottotitoli:
-        try:
-            # fps=25 PRIMA dei sottotitoli: il concat di immagini dà un solo fotogramma
-            # per scheda, e senza fps il testo verrebbe stampato solo su quelli
-            esegui(f"{base},fps=25,subtitles=filename={sottotitoli},format=yuv420p")
-            return dest, True
-        except subprocess.CalledProcessError as e:
-            log.warning(f"Sottotitoli non applicati ({e}): video senza")
     esegui(f"{base},format=yuv420p")
-    return dest, False
+    if not sottotitoli:
+        return dest, False
+    # Sottotitoli in una seconda passata sul video già montato: applicati direttamente
+    # al concat delle immagini (un fotogramma per scheda) si perdeva la copertina.
+    tmp = dest + ".sottotitoli.mp4"
+    try:
+        subprocess.run(
+            ["ffmpeg", "-y", "-loglevel", "error", "-i", dest,
+             "-vf", f"subtitles=filename={sottotitoli},format=yuv420p",
+             "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "copy",
+             "-movflags", "+faststart", tmp], check=True)
+        os.replace(tmp, dest)
+        return dest, True
+    except subprocess.CalledProcessError as e:
+        log.warning(f"Sottotitoli non applicati ({e}): video senza")
+        return dest, False
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

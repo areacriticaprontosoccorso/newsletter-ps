@@ -203,8 +203,7 @@ PODCAST_ATEMPO_MAX = 1.10
 # scalano in proporzione. Misurato sul run del 30/10: 235 parole + intro = 124 s anche
 # a velocità 1,10, quindi il tetto è sceso a 220 (circa 120 s).
 # In PODCAST_INTRO, {Articoli} diventa il numero in lettere ("Cinque", "Quattro"...).
-# Dal 2/11: ogni paragrafo ha anche la frase "Per il PS" e il podcast ha apertura,
-# avvertenza e sigla, quindi i paragrafi degli articoli si accorciano.
+# Dal 2/11 il podcast ha apertura, avvertenza e sigla e può durare fino a 2'20".
 PODCAST_PAROLE_MIN = 175
 PODCAST_PAROLE_MAX = 210
 # Frase d'apertura scritta da Claude ("Questa settimana: ..."), inserita prima di "Buon ascolto".
@@ -272,9 +271,8 @@ Nessun numero.
 4. Ogni paragrafo, in quest'ordine: il disegno dello studio in poche parole; UN \
 risultato principale, con il suo confronto ("X% contro Y%", mai un valore isolato); \
 il peso dell'evidenza detto a parole, partendo dal campo "badge" (per esempio "cambia \
-la pratica", "da confermare", "studio esplorativo"); per ultima una frase che comincia \
-ESATTAMENTE con "Per il PS:" e dice in concreto cosa significa per chi lavora in Pronto \
-Soccorso, ricavata dal campo "rilevanza", senza numeri. Ometti intervalli di confidenza, \
+la pratica", "da confermare", "studio esplorativo"), oppure il limite principale. Ometti \
+intervalli di confidenza, \
 valori p, analisi secondarie e dettagli di metodo. Scrivi i termini medici italiani per \
 esteso e nella forma corretta ("ritorno della circolazione spontanea", non "circolo \
 spontaneo").
@@ -291,7 +289,7 @@ grafia, aggiungi dopo una barra verticale come si legge: [[ICare-FASTER|Eye-Care
 7. Frasi brevi, adatte all'ascolto: al massimo 30 parole per frase. Niente parentesi, \
 elenchi, virgolette doppie o abbreviazioni da leggere (scrivi "intervallo di \
 confidenza", non "IC"). Le sigle italiane d'uso comune (PS, NIV, TC) vanno bene.
-8. Non aggiungere nulla che non sia negli abstract, nelle sintesi o nella rilevanza.
+8. Non aggiungere nulla che non sia negli abstract o nelle sintesi.
 
 Rispondi SOLO con un array JSON: per primo l'oggetto dell'apertura, poi un oggetto per \
 articolo nello stesso ordine:
