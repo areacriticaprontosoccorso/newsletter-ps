@@ -185,7 +185,9 @@ PODCAST_INTRO = ("Benvenuti! Questa è la newsletter settimanale della Medicina 
                  "d'Emergenza-Urgenza dell'ospedale San Giovanni Bosco di Torino. "
                  "{Articoli} articoli, due minuti, sola medicina d'emergenza-urgenza. "
                  "Buon ascolto!")
-PODCAST_CHIUSURA = "Alla prossima."
+PODCAST_CHIUSURA = ("Sintesi generate con l'intelligenza artificiale: verificate sempre sulle "
+                    "fonti. Le sintesi complete e i link agli articoli sono nella newsletter. "
+                    "Alla prossima.")
 
 # Carattere della voce Chatterbox: valori più bassi = intonazione più calma e meno
 # enfatica. 0,35 / 0,3 scelti all'ascolto il 30/10 (prima: 0,5 / 0,5).
@@ -194,15 +196,23 @@ PODCAST_CFG          = 0.3
 
 # Durata: se il parlato supera PODCAST_DURATA_MAX secondi si accelera fino a
 # PODCAST_ATEMPO_MAX (oltre, la voce si snatura: si pubblica comunque, con avviso).
-PODCAST_DURATA_MAX = 120
+PODCAST_DURATA_MAX = 140   # 2 minuti e 20 secondi, concessi dal 2/11 (sigla e avvertenza comprese)
 PODCAST_ATEMPO_MAX = 1.10
 # Parole del copione per TUTTI gli articoli insieme (intro e chiusura escluse),
 # riferite a un digest di ARTICOLI_FINALI articoli: con meno articoli i limiti
 # scalano in proporzione. Misurato sul run del 30/10: 235 parole + intro = 124 s anche
 # a velocità 1,10, quindi il tetto è sceso a 220 (circa 120 s).
 # In PODCAST_INTRO, {Articoli} diventa il numero in lettere ("Cinque", "Quattro"...).
-PODCAST_PAROLE_MIN = 185
-PODCAST_PAROLE_MAX = 220
+# Dal 2/11: ogni paragrafo ha anche la frase "Per il PS" e il podcast ha apertura,
+# avvertenza e sigla, quindi i paragrafi degli articoli si accorciano.
+PODCAST_PAROLE_MIN = 175
+PODCAST_PAROLE_MAX = 210
+# Frase d'apertura scritta da Claude ("Questa settimana: ..."), inserita prima di "Buon ascolto".
+PODCAST_APERTURA_MAX_PAROLE = 16
+# Sottotitoli nel video (testo del copione con i tempi delle parole di Whisper) e sigla.
+PODCAST_SOTTOTITOLI = True
+PODCAST_SIGLA = True
+PODCAST_SIGLA_DB = -6      # loudness della sigla rispetto alla voce (LUFS): resta sotto, senza sparire
 
 # Verifica della voce: ogni frase viene ritrascritta con Whisper e confrontata
 # col testo; sotto soglia si rigenera (fino a PODCAST_TENTATIVI volte, si tiene
@@ -244,41 +254,48 @@ PODCAST_FB_TESTA_ELENCO = "Il podcast della settimana: i {n} articoli in due min
 PODCAST_FB_TITOLO = "EM Weekly Digest — Podcast settimana {settimana}/{anno}"
 
 PODCAST_PROMPT = """Scrivi il copione parlato del podcast settimanale di un Pronto Soccorso: \
-una sola voce, in italiano, tono tecnico per medici d'urgenza. Presenta i {n} articoli \
-qui sotto, nell'ordine dato. Introduzione e saluti li aggiunge il programma: tu scrivi \
-solo i paragrafi degli articoli.
+una sola voce, in italiano, tono tecnico ma colloquiale, per medici d'urgenza. Presenta i \
+{n} articoli qui sotto, nell'ordine dato. Saluto iniziale, avvertenza e congedo li aggiunge \
+il programma: tu scrivi l'APERTURA e i paragrafi degli articoli.
 
 REGOLE
-1. LUNGHEZZA, il vincolo più importante: il podcast dura due minuti, quindi devi \
+1. LUNGHEZZA, il vincolo più importante: il podcast dura poco più di due minuti, quindi devi \
 scegliere, non riassumere tutto. Un paragrafo per articolo, da {per_min} a {per_max} \
-parole ciascuno, MAI di più (circa 3 o 4 frasi). Tutti i paragrafi insieme: fra \
+parole ciascuno, MAI di più (3 o 4 frasi brevi). Tutti i paragrafi insieme: fra \
 {min_parole} e {max_parole} parole. Conta le parole prima di rispondere.
-2. Apri ogni paragrafo con un connettivo d'ordine e la rivista, per esempio: \
+2. APERTURA: una sola frase, al massimo {max_apertura} parole, che comincia con \
+"Questa settimana" e annuncia il tema più importante (di solito il primo articolo). \
+Nessun numero.
+3. Apri ogni paragrafo con un connettivo d'ordine e la rivista, per esempio: \
 "Si parte da [[Circulation]], ...", "Secondo studio, su ...", "Terzo, su ...", \
 "Quarto, ancora su ...", "Infine, una metanalisi su ...".
-3. Per ogni articolo: il disegno dello studio in poche parole, UN risultato principale \
-con al massimo due numeri, e il limite più importante o il peso dell'evidenza. \
-Ometti intervalli di confidenza, valori p, analisi secondarie e dettagli di metodo.
-Ogni percentuale o rischio va sempre col suo confronto ("X% contro Y%"): mai un \
-valore isolato. Scrivi i termini medici italiani per esteso e nella forma corretta \
-("ritorno della circolazione spontanea", non "circolo spontaneo").
-4. NUMERI: usa SOLO numeri presenti nell'abstract o nella sintesi di QUELL'articolo, \
+4. Ogni paragrafo, in quest'ordine: il disegno dello studio in poche parole; UN \
+risultato principale, con il suo confronto ("X% contro Y%", mai un valore isolato); \
+il peso dell'evidenza detto a parole, partendo dal campo "badge" (per esempio "cambia \
+la pratica", "da confermare", "studio esplorativo"); per ultima una frase che comincia \
+ESATTAMENTE con "Per il PS:" e dice in concreto cosa significa per chi lavora in Pronto \
+Soccorso, ricavata dal campo "rilevanza", senza numeri. Ometti intervalli di confidenza, \
+valori p, analisi secondarie e dettagli di metodo. Scrivi i termini medici italiani per \
+esteso e nella forma corretta ("ritorno della circolazione spontanea", non "circolo \
+spontaneo").
+5. NUMERI: usa SOLO numeri presenti nell'abstract o nella sintesi di QUELL'articolo, \
 scritti in cifre (decimali con la virgola, migliaia col punto: 60.000; percentuali col \
 simbolo %). Puoi arrotondare solo premettendo "circa". NON calcolare numeri nuovi: \
 niente differenze, conversioni, rapporti o percentuali derivate.
-5. TERMINI INGLESI: racchiudi fra doppie parentesi quadre OGNI nome di rivista, nome o \
+6. TERMINI INGLESI: racchiudi fra doppie parentesi quadre OGNI nome di rivista, nome o \
 acronimo di studio e termine tecnico inglese: [[Critical Care Medicine]], \
 [[point-of-care]], [[odds]], [[trial]]. Se la pronuncia inglese non si deduce dalla \
 grafia, aggiungi dopo una barra verticale come si legge: [[ICare-FASTER|Eye-Care Faster]], \
 [[ARDS|A R D S]]. Usa la parola italiana quando esiste ed è d'uso comune \
 (rianimazione, ventilazione non invasiva, esito).
-6. Frasi brevi, adatte all'ascolto: al massimo 30 parole per frase. Niente parentesi, \
+7. Frasi brevi, adatte all'ascolto: al massimo 30 parole per frase. Niente parentesi, \
 elenchi, virgolette doppie o abbreviazioni da leggere (scrivi "intervallo di \
-confidenza", non "IC"). Le sigle italiane d'uso comune (PS, NIV) vanno bene.
-7. Non aggiungere nulla che non sia negli abstract o nelle sintesi.
+confidenza", non "IC"). Le sigle italiane d'uso comune (PS, NIV, TC) vanno bene.
+8. Non aggiungere nulla che non sia negli abstract, nelle sintesi o nella rilevanza.
 
-Rispondi SOLO con un array JSON, un oggetto per articolo nello stesso ordine:
-[{{"pmid": "...", "testo": "..."}}]
+Rispondi SOLO con un array JSON: per primo l'oggetto dell'apertura, poi un oggetto per \
+articolo nello stesso ordine:
+[{{"pmid": "apertura", "testo": "Questa settimana ..."}}, {{"pmid": "...", "testo": "..."}}]
 
 ARTICOLI
 {blocchi}"""
