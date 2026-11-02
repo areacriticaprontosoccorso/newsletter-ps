@@ -516,11 +516,19 @@ class Voce:
         return migliore
 
 
+class ModelloNonDisponibile(Exception):
+    """Il modello Gemini non esiste o ha finito la quota del giorno: si passa al successivo."""
+
+
 class VoceGemini:
-    """Voce Gemini TTS (API di Google, voci italiane native). Una chiamata per sezione
-    (intro, ogni articolo, chiusura): il testo si legge così com'è, i termini inglesi
-    li pronuncia il modello. Ogni sezione viene ritrascritta con Whisper e, se non
-    corrisponde al testo, rigenerata (fino a PODCAST_TENTATIVI volte)."""
+    """Voce Gemini TTS (API di Google, voci italiane native).
+
+    Il podcast si genera in pochi blocchi di circa 40 secondi (sezioni intere: intro,
+    articoli, chiusura): nelle letture lunghe il modello cambia timbro verso la fine
+    (prova del 2/11: voce diversa dopo ~80 s). Tutti i blocchi usano lo stesso modello;
+    se un modello cade a metà, si ricomincia col successivo. Ogni blocco viene
+    ritrascritto con Whisper: si rigenera se non corrisponde al testo e si taglia dopo
+    l'ultima parola (a volte il modello aggiunge rumore in coda)."""
     URL = "https://generativelanguage.googleapis.com/v1beta/models/{modello}:generateContent"
 
     def __init__(self):
@@ -531,12 +539,11 @@ class VoceGemini:
             raise RuntimeError("GEMINI_API_KEY mancante: impossibile usare Gemini TTS")
         self.np, self.librosa = np, librosa
         self.sr = 24000
-        self.modelli = list(cfg.PODCAST_GEMINI_MODELLI)
         self.modello_usato = None
         log.info(f"Voce: Gemini TTS ({cfg.PODCAST_GEMINI_VOCE}); verifica con Whisper...")
         self.stt = WhisperModel(cfg.PODCAST_WHISPER_MODELLO, device="cpu", compute_type="int8")
 
-    def _chiama(self, testo):
+    def _chiama(self, testo, modello):
         np = self.np
         corpo = json.dumps({
             "contents": [{"parts": [{"text": testo}]}],
@@ -547,58 +554,47 @@ class VoceGemini:
             },
         }).encode("utf-8")
         ultimo = None
-        while self.modelli:
-            modello = self.modelli[0]
-            for tentativo in range(4):
-                req = urllib.request.Request(
-                    self.URL.format(modello=modello), data=corpo, method="POST",
-                    headers={"Content-Type": "application/json",
-                             "x-goog-api-key": cfg.GEMINI_API_KEY})
-                try:
-                    with urllib.request.urlopen(req, timeout=240) as r:
-                        dati = json.loads(r.read().decode("utf-8"))
-                except urllib.error.HTTPError as e:
-                    intero = e.read().decode("utf-8", "replace")
-                    corpo_err = " ".join(intero.split())[:300]
-                    ultimo = f"Gemini TTS HTTP {e.code} ({modello}): {corpo_err}"
-                    if e.code == 429 and "PerDay" in intero:
-                        log.warning(f"    quota giornaliera esaurita per {modello}: provo il modello successivo")
-                        break
-                    if e.code == 404 or (e.code == 400 and "model" in corpo_err.lower()):
-                        log.warning(f"    {ultimo} — provo il modello successivo")
-                        break
-                    if e.code == 429 or e.code >= 500:
-                        attesa = 10 * 2 ** tentativo
-                        log.warning(f"    {ultimo} — riprovo tra {attesa}s")
-                        time.sleep(attesa)
-                        continue
-                    raise RuntimeError(ultimo)
-                except urllib.error.URLError as e:
-                    ultimo = f"Gemini TTS rete: {e}"
-                    time.sleep(5 * 2 ** tentativo)
+        for tentativo in range(4):
+            req = urllib.request.Request(
+                self.URL.format(modello=modello), data=corpo, method="POST",
+                headers={"Content-Type": "application/json", "x-goog-api-key": cfg.GEMINI_API_KEY})
+            try:
+                with urllib.request.urlopen(req, timeout=240) as r:
+                    dati = json.loads(r.read().decode("utf-8"))
+            except urllib.error.HTTPError as e:
+                intero = e.read().decode("utf-8", "replace")
+                ultimo = f"Gemini TTS HTTP {e.code} ({modello}): {' '.join(intero.split())[:300]}"
+                if (e.code == 429 and "PerDay" in intero) or e.code == 404 or \
+                        (e.code == 400 and "model" in intero.lower()):
+                    raise ModelloNonDisponibile(ultimo)
+                if e.code == 429 or e.code >= 500:
+                    attesa = 10 * 2 ** tentativo
+                    log.warning(f"    {ultimo[:160]} — riprovo tra {attesa}s")
+                    time.sleep(attesa)
                     continue
-                parti = (dati.get("candidates") or [{}])[0].get("content", {}).get("parts", [])
-                inline = next((x["inlineData"] for x in parti if "inlineData" in x), None)
-                if not inline:
-                    ultimo = f"Gemini TTS: risposta senza audio ({str(dati)[:200]})"
-                    continue
-                m = re.search(r"rate=(\d+)", inline.get("mimeType", ""))
-                rate = int(m.group(1)) if m else 24000
-                pcm = np.frombuffer(base64.b64decode(inline["data"]), dtype="<i2")
-                a = pcm.astype(np.float32) / 32768.0
-                if rate != self.sr:
-                    a = self.librosa.resample(a, orig_sr=rate, target_sr=self.sr)
-                self.modello_usato = modello
-                return a
-            else:
-                raise RuntimeError(ultimo or "Gemini TTS: troppi tentativi")
-            self.modelli.pop(0)          # modello non disponibile: il successivo
-        raise RuntimeError(ultimo or "Gemini TTS: nessun modello disponibile")
+                raise RuntimeError(ultimo)
+            except urllib.error.URLError as e:
+                ultimo = f"Gemini TTS rete: {e}"
+                time.sleep(5 * 2 ** tentativo)
+                continue
+            parti = (dati.get("candidates") or [{}])[0].get("content", {}).get("parts", [])
+            inline = next((x["inlineData"] for x in parti if "inlineData" in x), None)
+            if not inline:      # es. finishReason SAFETY su testo innocuo: si riprova
+                ultimo = f"Gemini TTS: risposta senza audio ({str(dati)[:200]})"
+                log.warning(f"    {ultimo[:160]}")
+                continue
+            m = re.search(r"rate=(\d+)", inline.get("mimeType", ""))
+            rate = int(m.group(1)) if m else 24000
+            a = np.frombuffer(base64.b64decode(inline["data"]), dtype="<i2").astype(np.float32) / 32768.0
+            if rate != self.sr:
+                a = self.librosa.resample(a, orig_sr=rate, target_sr=self.sr)
+            return a
+        raise RuntimeError(ultimo or "Gemini TTS: troppi tentativi")
 
-    def trascrivi(self, a, lingua):
+    def trascrivi_parole(self, a):
         a16 = self.librosa.resample(a, orig_sr=self.sr, target_sr=16000)
-        segs, _ = self.stt.transcribe(a16, language=lingua, beam_size=5)
-        return list(segs)
+        segs, _ = self.stt.transcribe(a16, language="it", beam_size=5, word_timestamps=True)
+        return [(w.word, w.start, w.end) for s in segs for w in (s.words or [])]
 
     def rifila(self, a):
         iv = self.librosa.effects.split(a, top_db=35, frame_length=512, hop_length=128)
@@ -607,10 +603,18 @@ class VoceGemini:
         pad = int(0.03 * self.sr)
         return a[max(0, iv[0][0] - pad): min(len(a), iv[-1][1] + pad)]
 
-    def trascrivi_parole(self, a):
-        a16 = self.librosa.resample(a, orig_sr=self.sr, target_sr=16000)
-        segs, _ = self.stt.transcribe(a16, language="it", beam_size=5, word_timestamps=True)
-        return [(w.word, w.start, w.end) for s in segs for w in (s.words or [])]
+    def taglia_dopo_ultima_parola(self, a, parole):
+        """Toglie ciò che segue l'ultima parola riconosciuta (rumore, sillabe spurie),
+        con una breve dissolvenza."""
+        if not parole:
+            return a, parole
+        fine = int(min(len(a), (parole[-1][2] + 0.30) * self.sr))
+        if fine >= len(a) - int(0.05 * self.sr):
+            return a, parole
+        b = a[:fine].copy()
+        n = min(len(b), int(0.06 * self.sr))
+        b[-n:] *= self.np.linspace(1, 0, n, dtype=self.np.float32)
+        return b, parole
 
     @staticmethod
     def _allinea(parole, sezioni):
@@ -638,52 +642,125 @@ class VoceGemini:
                 inizi.append(parole[trovato][1])
         return inizi
 
-    def podcast_verificato(self, sezioni):
-        """Tutto il podcast in UNA chiamata (lettura continua e una sola richiesta:
-        il piano gratuito ne concede poche al giorno). Restituisce audio, istanti
-        (inizio, fine) di ogni sezione e verifica per sezione."""
-        np = self.np
-        vis = [testo_visibile(s) for s in sezioni]
-        # "Emergenza-Urgenza": col trattino Gemini legge "Emergenza a Urgenza"
+    def uniforma_timbro(self, blocchi):
+        """Fra una chiamata e l'altra la voce predefinita esce con un timbro un po'
+        diverso (più chiara, più scura). Si porta lo spettro medio di ogni blocco su
+        quello del primo, entro ±PODCAST_GEMINI_EQ_MAX_DB, e se ne pareggia il volume."""
+        np, lr = self.np, self.librosa
+        n_fft, hop = 1024, 256
+
+        def ltas(a):
+            S = np.abs(lr.stft(a, n_fft=n_fft, hop_length=hop)) ** 2
+            e = S.sum(0)
+            voce = S[:, e > np.percentile(e, 40)]
+            m = voce.mean(1) + 1e-10
+            k = 15                                   # ~350 Hz: si segue l'inviluppo, non le armoniche
+            return np.convolve(m, np.ones(k) / k, mode="same"), float(np.sqrt(voce.sum(0).mean()))
+
+        rif, rms_rif = ltas(blocchi[0])
+        f = lr.fft_frequencies(sr=self.sr, n_fft=n_fft)
+        banda = (f > 80) & (f < 10000)
+        out = [blocchi[0]]
+        for b in blocchi[1:]:
+            m, rms = ltas(b)
+            g = np.clip(10 * np.log10(rif / m), -cfg.PODCAST_GEMINI_EQ_MAX_DB, cfg.PODCAST_GEMINI_EQ_MAX_DB)
+            g = np.where(banda, g, 0.0)
+            S = lr.stft(b, n_fft=n_fft, hop_length=hop)
+            c = lr.istft(S * (10 ** (g / 20))[:, None], hop_length=hop, length=len(b))
+            m2, rms2 = ltas(c.astype(np.float32))
+            out.append((c * (rms_rif / max(rms2, 1e-9))).astype(np.float32))
+        return out
+
+    @staticmethod
+    def blocchi(vis):
+        """Indici delle sezioni raggruppati in blocchi di circa PODCAST_GEMINI_PAROLE_BLOCCO parole."""
+        gruppi, cur, n = [], [], 0
+        for i, v in enumerate(vis):
+            w = len(v.split())
+            if cur and n + w > cfg.PODCAST_GEMINI_PAROLE_BLOCCO:
+                gruppi.append(cur)
+                cur, n = [], 0
+            cur.append(i)
+            n += w
+        if cur:
+            gruppi.append(cur)
+        # una chiusura breve da sola suonerebbe staccata: va col blocco precedente
+        if len(gruppi) > 1 and sum(len(vis[i].split()) for i in gruppi[-1]) < 8:
+            gruppi[-2].extend(gruppi.pop())
+        return gruppi
+
+    def _blocco(self, sez_vis, modello):
+        """Un blocco: chiamata, taglio, verifica (fino a PODCAST_TENTATIVI volte)."""
         trascrizione = "\n\n".join(
-            numeri_in_parole(re.sub(r"(?i)emergenza-urgenza", "emergenza urgenza", v)) for v in vis)
+            numeri_in_parole(re.sub(r"(?i)emergenza-urgenza", "emergenza urgenza", v)) for v in sez_vis)
         prompt = (f"### NOTE DI REGIA\n{cfg.PODCAST_GEMINI_STILE}\n\n"
                   f"#### TRASCRIZIONE\n{trascrizione}")
         migliore = None
         for t in range(cfg.PODCAST_TENTATIVI):
-            try:
-                a = self.rifila(self._chiama(prompt)).astype(np.float32)
-            except Exception as e:
-                if migliore is None:
-                    raise
-                log.warning(f"  tentativo {t + 1} fallito ({str(e)[:120]}): tengo il migliore")
-                break
+            a = self.rifila(self._chiama(prompt, modello)).astype(self.np.float32)
             parole = self.trascrivi_parole(a)
+            a, parole = self.taglia_dopo_ultima_parola(a, parole)
             sentito = "".join(w for w, _, _ in parole)   # le parole hanno già lo spazio iniziale
-            punti = difflib.SequenceMatcher(None, _norm(" ".join(vis)), _norm(sentito)).ratio()
-            log.info(f"  tentativo {t + 1}: {len(a) / self.sr:.1f}s, punteggio {punti:.2f}")
+            punti = difflib.SequenceMatcher(None, _norm(" ".join(sez_vis)), _norm(sentito)).ratio()
+            log.info(f"    blocco ({len(sez_vis)} sezioni), tentativo {t + 1}: "
+                     f"{len(a) / self.sr:.1f}s, punteggio {punti:.2f}")
             if migliore is None or punti > migliore[1]:
                 migliore = (a, punti, parole)
             if punti >= cfg.PODCAST_SOGLIA_WHISPER:
                 break
-        a, punti, parole = migliore
-        durata = len(a) / self.sr
-        inizi = self._allinea(parole, vis)
-        # sezioni non trovate: si stimano in proporzione alla lunghezza del testo
-        lung = [len(v) for v in vis]
-        for k, x in enumerate(inizi):
-            if x is None:
-                prima = next(inizi[j] for j in range(k - 1, -1, -1) if inizi[j] is not None)
-                inizi[k] = prima + durata * lung[k - 1] / sum(lung)
+        return migliore
+
+    def podcast_verificato(self, sezioni):
+        """Restituisce audio, istanti (inizio, fine) di ogni sezione, verifica per
+        sezione e punteggio complessivo."""
+        np = self.np
+        vis = [testo_visibile(s) for s in sezioni]
+        gruppi = self.blocchi(vis)
+        ultimo = None
+        for modello in cfg.PODCAST_GEMINI_MODELLI:
+            try:
+                log.info(f"  Gemini {modello}: {len(gruppi)} blocchi")
+                risultati = [self._blocco([vis[i] for i in g], modello) for g in gruppi]
+                self.modello_usato = modello
+                break
+            except ModelloNonDisponibile as e:
+                ultimo = str(e)
+                log.warning(f"    {ultimo[:200]} — provo il modello successivo")
+        else:
+            raise RuntimeError(ultimo or "Gemini TTS: nessun modello disponibile")
+
+        if cfg.PODCAST_GEMINI_UNIFORMA and len(risultati) > 1:
+            uniformati = self.uniforma_timbro([r[0] for r in risultati])
+            risultati = [(u, r[1], r[2]) for u, r in zip(uniformati, risultati)]
+        pausa = np.zeros(int(0.45 * self.sr), dtype=np.float32)
+        pezzi, parole_tot, inizi, cursore = [], [], [], 0.0
+        for g, (a, _, parole) in zip(gruppi, risultati):
+            if pezzi:
+                pezzi.append(pausa)
+                cursore += len(pausa) / self.sr
+            locali = self._allinea(parole, [vis[i] for i in g])
+            durata_b = len(a) / self.sr
+            lung = [len(vis[i]) for i in g]
+            for k, x in enumerate(locali):      # sezioni non trovate: stima proporzionale
+                if x is None:
+                    locali[k] = locali[k - 1] + durata_b * lung[k - 1] / sum(lung)
+            inizi += [cursore + x for x in locali]
+            parole_tot += [(w, cursore + s0, cursore + s1) for w, s0, s1 in parole]
+            pezzi.append(a)
+            cursore += durata_b
+        audio = np.concatenate(pezzi)
+        durata = len(audio) / self.sr
         confini = [(max(0.0, inizi[k] - (0.15 if k else 0)),
                     inizi[k + 1] - 0.15 if k + 1 < len(inizi) else durata)
                    for k in range(len(inizi))]
         verifica = []
         for k, (i0, i1) in enumerate(confini):
-            sent = "".join(w for w, s0, _ in parole if i0 <= s0 < i1)
+            sent = "".join(w for w, s0, _ in parole_tot if i0 <= s0 < i1)
             pk = difflib.SequenceMatcher(None, _norm(vis[k]), _norm(sent)).ratio()
             verifica.append({"frase": vis[k], "sentito": sent.strip(), "punteggio": round(pk, 3)})
-        return a, confini, verifica, punti
+        sentito = "".join(w for w, _, _ in parole_tot)
+        punti = difflib.SequenceMatcher(None, _norm(" ".join(vis)), _norm(sentito)).ratio()
+        return audio, confini, verifica, punti
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

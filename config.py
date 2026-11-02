@@ -164,11 +164,19 @@ PODCAST_RIPIEGO_CHATTERBOX = os.environ.get("PODCAST_RIPIEGO", "1").strip() != "
 PODCAST_GEMINI_MODELLI = ["gemini-3.8-flash-tts", "gemini-3.1-flash-tts-preview",
                           "gemini-2.5-flash-preview-tts", "gemini-2.5-pro-preview-tts"]
 PODCAST_GEMINI_VOCE    = "Charon"     # voce predefinita di Gemini (informativa, maschile)
+# Parole per chiamata: nelle letture oltre il minuto il modello cambia timbro verso la
+# fine, quindi il podcast si genera in blocchi di sezioni intere (~40 s ciascuno).
+PODCAST_GEMINI_PAROLE_BLOCCO = 100
+# Fra una chiamata e l'altra il timbro cambia un po': lo spettro medio di ogni blocco
+# viene portato su quello del primo (correzione massima in dB) e il volume pareggiato.
+PODCAST_GEMINI_UNIFORMA = True
+PODCAST_GEMINI_EQ_MAX_DB = 4
 # Note di regia: vanno nella sezione "NOTE DI REGIA" del prompt, separate dalla
 # "TRASCRIZIONE" (se scritte come frase prima del testo, il modello le legge ad alta voce).
 PODCAST_GEMINI_STILE = ("Leggi in italiano, come un medico d'urgenza che presenta ai colleghi "
                         "la rassegna settimanale della letteratura: tono professionale, caldo "
-                        "e naturale, ritmo sostenuto ma ben scandito, senza enfasi. Breve pausa "
+                        "e naturale, ritmo sostenuto ma ben scandito, senza enfasi. Stessa voce, "
+                        "stesso timbro e stesso ritmo dall'inizio alla fine. Breve pausa "
                         "fra un paragrafo e l'altro. Nomi delle riviste e termini inglesi in "
                         "pronuncia inglese.")
 PODCAST_VOCE_RIF   = "podcast_voce.wav"   # campione di voce (sintetica) da imitare
