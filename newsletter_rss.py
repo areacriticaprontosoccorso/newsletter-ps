@@ -1391,42 +1391,6 @@ def pubblica_facebook_corsi(corsi):
     return ok > 0
 
 
-def telegram_send_message(bot_token, chat_id, text, parse_mode="HTML"):
-    """Invia un singolo messaggio Telegram (max 4096 caratteri)."""
-    payload = json.dumps({"chat_id": chat_id, "text": text, "parse_mode": parse_mode,
-                          "disable_web_page_preview": False}).encode("utf-8")
-    req = urllib.request.Request(f"https://api.telegram.org/bot{bot_token}/sendMessage",
-                                 data=payload, headers={"Content-Type": "application/json"},
-                                 method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=30) as r:
-            resp = json.loads(r.read().decode("utf-8"))
-        if not resp.get("ok"):
-            log.error(f"Telegram API errore: {resp}")
-            return False
-        return True
-    except Exception as e:
-        log.error(f"Telegram invio fallito: {e}")
-        return False
-
-
-def invia_telegram_corsi(corsi):
-    """Gli avvisi dei corsi su Telegram (con locandina). EM non ha altri messaggi
-    Telegram. Senza TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID si salta. Mai bloccante."""
-    if not corsi:
-        return True
-    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
-    if not bot_token or not chat_id:
-        log.warning("TELEGRAM_BOT_TOKEN o TELEGRAM_CHAT_ID mancanti - avvisi corsi non inviati su Telegram")
-        return False
-    ok, tot = avvisi.invia_telegram(
-        bot_token, chat_id, corsi,
-        lambda testo: telegram_send_message(bot_token, chat_id, testo))
-    log.info(f"Telegram corsi: inviati {ok}/{tot}")
-    return ok == tot
-
-
 def build_html(articoli, podcast_allegato=None, corsi=None):
     wl = numero_settimana()
     blocco_corsi = avvisi.html_corsi(corsi, cfg.COLOR_ACCENT, anteprima_locale=cfg.DRY_RUN)
@@ -2134,12 +2098,6 @@ def main():
             if ok:
                 break
 
-    # Avvisi dei corsi su Telegram e Facebook dopo l'email: errori qui non toccano il digest.
-    if not cfg.SOLO_FACEBOOK:
-        try:
-            invia_telegram_corsi(corsi)
-        except Exception as e:
-            log.error(f"Avvisi corsi su Telegram non inviati: {e}")
     # Facebook dopo l'email: un errore qui non deve impedire l'invio del digest.
     pubblica_facebook(immagini, selezionati, wl)
     try:
