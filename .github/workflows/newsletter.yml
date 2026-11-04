@@ -122,9 +122,6 @@ jobs:
           FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
           FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          # Solo per gli avvisi dei corsi su Telegram (senza questi due secret si saltano)
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           # 'success', 'failure' o vuoto (passo saltato): se non è 'success' il podcast non si tenta
           PODCAST_DIPENDENZE: ${{ steps.dipendenze_podcast.outcome || 'skipped' }}
           # niente barre di avanzamento nel log (sarebbero migliaia di righe)

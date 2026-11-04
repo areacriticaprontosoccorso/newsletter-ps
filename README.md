@@ -157,8 +157,7 @@ Il campo `fascia` (1–5, 5 = massimo) è un peso editoriale, **non** l'impact f
 
 ## Avvisi dei corsi (POCUS e NIV)
 
-Le locandine dei corsi POCUS e NIV compaiono in cima alla mail, in un messaggio Telegram
-e in un post Facebook (programmato alle 14:30). **Una locandina a settimana, a turno**:
+Le locandine dei corsi POCUS e NIV compaiono in cima alla mail, e in un post Facebook (programmato alle 14:30). **Una locandina a settimana, a turno**:
 `turno: 0` = POCUS, `turno: 1` = NIV, con `ogni_settimane: 2`. Si parte lunedì 9/11/2026
 con POCUS, poi NIV il 16/11, e così via; nell'ultima uscita prima di un corso (7 giorni o meno)
 quel corso compare comunque. Si gestiscono da **`corsi.json`** (stesso formato di POCUS e NIV,
@@ -167,4 +166,3 @@ l'avviso sparisce da solo. Un errore nel file non blocca l'invio: `python corsi.
 
 Il **video del podcast** chiude con le locandine di tutti i corsi in corso (POCUS e NIV),
 `PODCAST_LOCANDINA_SEC` = 5 secondi ciascuna, in silenzio dopo la sigla. L'MP3 resta com'è.
-Per Telegram servono i secret `TELEGRAM_BOT_TOKEN` e `TELEGRAM_CHAT_ID` del repo.
