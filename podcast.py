@@ -51,6 +51,7 @@ from zoneinfo import ZoneInfo
 
 import config as cfg
 import newsletter_rss as nr
+import corsi as avvisi
 
 log = nr.log
 RE_EN = re.compile(r"\[\[([^\]|]+)(?:\|([^\]]+))?\]\]")
@@ -970,9 +971,44 @@ def genera_copertina(articoli, wl, dest):
         return None
 
 
-def genera_video(mp3, sezioni, immagini, copertina, dest, sottotitoli=None):
+def locandine_video(oggi=None):
+    """File delle locandine dei corsi da mettere in coda al video: tutti i corsi in
+    corso di pubblicazione (POCUS e NIV), a prescindere dal turno settimanale della mail.
+    Mai eccezioni: in caso di problemi restituisce []."""
+    try:
+        files = []
+        for c in avvisi.carica_corsi("em", oggi=oggi, base_url=cfg.URL_RAW_REPO,
+                                     ignora_frequenza=True, massimo=8):
+            f = c.get("immagine_file")
+            if f and os.path.exists(f) and f not in files:
+                files.append(f)
+        return files
+    except Exception as e:
+        log.warning(f"Locandine per il video non caricate: {e}")
+        return []
+
+
+def genera_video(mp3, sezioni, immagini, copertina, dest, sottotitoli=None, locandine=None):
     """sezioni: [(inizio_s, fine_s), ...] = intro, articoli..., chiusura.
-    Sull'intro e sulla chiusura la copertina, su ogni articolo la sua scheda."""
+    Sull'intro e sulla chiusura la copertina, su ogni articolo la sua scheda.
+    `locandine`: immagini in coda, PODCAST_LOCANDINA_SEC secondi ciascuna, in silenzio
+    (l'audio si allunga con una pausa; l'MP3 resta com'e')."""
+    sec = getattr(cfg, "PODCAST_LOCANDINA_SEC", 5)
+    # Il montaggio per concatenazione vuole immagini dello stesso formato delle schede
+    # (PNG): le locandine, di solito JPG, si convertono prima. Una che non si converte
+    # si salta, il video esce con le altre.
+    convertite = []
+    for k, f in enumerate(locandine or []):
+        if not os.path.exists(f):
+            continue
+        dest_png = os.path.join(cfg.PODCAST_DIR, f"locandina-{k + 1}.png")
+        try:
+            subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", f, "-frames:v", "1",
+                            dest_png], check=True)
+            convertite.append(dest_png)
+        except (subprocess.CalledProcessError, OSError) as e:
+            log.warning(f"Locandina {os.path.basename(f)} non convertita ({e}): la salto")
+    locandine = convertite
     n_art = len(sezioni) - 2
     schede = [immagini[i] if i < len(immagini) and os.path.exists(immagini[i]) else None
               for i in range(n_art)]
@@ -984,14 +1020,21 @@ def genera_video(mp3, sezioni, immagini, copertina, dest, sottotitoli=None):
     with open(lista, "w", encoding="utf-8") as f:
         for img, (ini, fin) in zip(sequenza, sezioni):
             f.write(f"file '{os.path.abspath(img)}'\nduration {max(0.5, fin - ini):.3f}\n")
-        f.write(f"file '{os.path.abspath(sequenza[-1])}'\n")
+        if locandine:
+            for img in locandine:
+                f.write(f"file '{os.path.abspath(img)}'\nduration {sec:.3f}\n")
+            f.write(f"file '{os.path.abspath(locandine[-1])}'\n")
+        else:
+            f.write(f"file '{os.path.abspath(sequenza[-1])}'\n")
     base = (f"scale={VIDEO_L}:{VIDEO_A}:force_original_aspect_ratio=decrease,"
             f"pad={VIDEO_L}:{VIDEO_A}:(ow-iw)/2:(oh-ih)/2:color=white")
 
     def esegui(vf):
         subprocess.run(
             ["ffmpeg", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", lista,
-             "-i", mp3, "-vf", vf, "-r", "25", "-c:v", "libx264", "-preset", "veryfast",
+             "-i", mp3, "-vf", vf,
+             *(["-af", f"apad=pad_dur={sec * len(locandine):.3f}"] if locandine else []),
+             "-r", "25", "-c:v", "libx264", "-preset", "veryfast",
              "-crf", "23", "-c:a", "aac", "-b:a", "128k",
              "-shortest", "-movflags", "+faststart", dest],
             check=True)
@@ -1169,7 +1212,12 @@ def genera(archivio=None, copione_file=None):
         if cfg.PODCAST_SOTTOTITOLI and tempi_parole:
             ass = scrivi_sottotitoli([(w, mappa(a), mappa(b)) for w, a, b in tempi_parole], 1.0,
                                      os.path.join(cfg.PODCAST_DIR, "sottotitoli.ass"))
-        _, con_sottotitoli = genera_video(mp3, sezioni, immagini, copertina, mp4, sottotitoli=ass)
+        locandine = locandine_video()
+        if locandine:
+            log.info(f"Video: {len(locandine)} locandine in coda "
+                     f"({getattr(cfg, 'PODCAST_LOCANDINA_SEC', 5)} s ciascuna)")
+        _, con_sottotitoli = genera_video(mp3, sezioni, immagini, copertina, mp4,
+                                          sottotitoli=ass, locandine=locandine)
         esito["sottotitoli"] = con_sottotitoli
         log.info(f"Video: {mp4} ({os.path.getsize(mp4) / 1e6:.1f} MB)")
 

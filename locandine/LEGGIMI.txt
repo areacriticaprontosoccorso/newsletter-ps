@@ -1,0 +1,7 @@
+Locandine dei corsi.
+
+Carica qui le immagini (GitHub: Add file > Upload files), poi indicale in corsi.json:
+  "immagine": "locandine/nome-file.jpg"
+
+Formati: jpg, png, gif. Massimo 5 MB (meglio sotto 1 MB: la mail resta leggera).
+Per la mail va bene una larghezza di circa 1200 px. Evita nomi con accenti o spazi.

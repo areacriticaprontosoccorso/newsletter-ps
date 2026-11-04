@@ -39,6 +39,7 @@ import io
 from datetime import datetime, timedelta, timezone, time as dt_time
 
 import config as cfg
+import corsi as avvisi
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1336,8 +1337,99 @@ def genera_immagini(articoli):
     return percorsi
 
 
-def build_html(articoli, podcast_allegato=None):
+def prossimi_slot_corsi(n):
+    """Slot feriali per i post sui corsi: stesso criterio di prossimi_slot_feriali,
+    ma a un orario proprio (FB_ORA_CORSI) per non sovrapporsi ai post degli articoli."""
+    tz = ZoneInfo(cfg.FB_FUSO)
+    adesso = datetime.now(tz)
+    slot, giorno = [], adesso.date()
+    while len(slot) < n:
+        quando = datetime.combine(giorno, dt_time(cfg.FB_ORA_CORSI, cfg.FB_MINUTO_CORSI),
+                                  tzinfo=tz)
+        if giorno.weekday() in cfg.FB_GIORNI_FERIALI and \
+           quando > adesso + timedelta(minutes=15):
+            slot.append(quando)
+        giorno += timedelta(days=1)
+    return slot
+
+
+def pubblica_facebook_corsi(corsi):
+    """Un post programmato per corso, uno per giorno feriale. Mai bloccante."""
+    if not corsi or not cfg.FB_ABILITATO or not (cfg.FB_PAGE_ID and cfg.FB_PAGE_TOKEN):
+        return False
+    ok = 0
+    for c, quando in zip(corsi, prossimi_slot_corsi(len(corsi))):
+        try:
+            campi = {"message": avvisi.testo_facebook(c), "published": "false",
+                     "scheduled_publish_time": str(int(quando.timestamp()))}
+            media = None
+            if c.get("immagine_file") or c.get("immagine_url"):
+                # Locandina: foto non pubblicata, poi allegata al post. Se il caricamento
+                # fallisce si programma il solo testo.
+                try:
+                    if c.get("immagine_file"):
+                        media = _fb_post(f"{cfg.FB_PAGE_ID}/photos", {"published": "false"},
+                                         file_path=c["immagine_file"])["id"]
+                    else:
+                        media = _fb_post(f"{cfg.FB_PAGE_ID}/photos",
+                                         {"published": "false", "url": c["immagine_url"]})["id"]
+                except Exception as e:
+                    log.warning(f"    locandina non caricata ({e}): post solo testo")
+            if media:
+                campi["attached_media[0]"] = json.dumps({"media_fbid": media})
+            elif c["link"]:
+                campi["link"] = c["link"]
+            p = _fb_post(f"{cfg.FB_PAGE_ID}/feed", campi)
+            log.info(f"    corso '{c['titolo'][:50]}' programmato per "
+                     f"{quando.strftime('%a %d/%m %H:%M')} -> {p.get('id')}")
+            ok += 1
+        except urllib.error.HTTPError as e:
+            log.error(f"    post corso HTTP {e.code}: {e.read().decode('utf-8', 'replace')[:300]}")
+        except Exception as e:
+            log.error(f"    post corso fallito: {e}")
+    log.info(f"Facebook corsi: {ok}/{len(corsi)} post programmati")
+    return ok > 0
+
+
+def telegram_send_message(bot_token, chat_id, text, parse_mode="HTML"):
+    """Invia un singolo messaggio Telegram (max 4096 caratteri)."""
+    payload = json.dumps({"chat_id": chat_id, "text": text, "parse_mode": parse_mode,
+                          "disable_web_page_preview": False}).encode("utf-8")
+    req = urllib.request.Request(f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                                 data=payload, headers={"Content-Type": "application/json"},
+                                 method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            resp = json.loads(r.read().decode("utf-8"))
+        if not resp.get("ok"):
+            log.error(f"Telegram API errore: {resp}")
+            return False
+        return True
+    except Exception as e:
+        log.error(f"Telegram invio fallito: {e}")
+        return False
+
+
+def invia_telegram_corsi(corsi):
+    """Gli avvisi dei corsi su Telegram (con locandina). EM non ha altri messaggi
+    Telegram. Senza TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID si salta. Mai bloccante."""
+    if not corsi:
+        return True
+    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
+    if not bot_token or not chat_id:
+        log.warning("TELEGRAM_BOT_TOKEN o TELEGRAM_CHAT_ID mancanti - avvisi corsi non inviati su Telegram")
+        return False
+    ok, tot = avvisi.invia_telegram(
+        bot_token, chat_id, corsi,
+        lambda testo: telegram_send_message(bot_token, chat_id, testo))
+    log.info(f"Telegram corsi: inviati {ok}/{tot}")
+    return ok == tot
+
+
+def build_html(articoli, podcast_allegato=None, corsi=None):
     wl = numero_settimana()
+    blocco_corsi = avvisi.html_corsi(corsi, cfg.COLOR_ACCENT, anteprima_locale=cfg.DRY_RUN)
     arts_html = ""
     for i, a in enumerate(articoli):
         doi_link = (
@@ -1468,6 +1560,7 @@ def build_html(articoli, podcast_allegato=None):
         </td>
       </tr>
 {riga_podcast}
+{blocco_corsi}
       <tr><td style="background:#ffffff;"><table width="100%" cellpadding="0" cellspacing="0">{arts_html}</table></td></tr>
       <tr>
         <td style="background:{cfg.COLOR_DARK};padding:22px 32px;">
@@ -1939,8 +2032,13 @@ def main():
     # l'MP3 parte allegato. Mai bloccante: se manca, la mail esce come sempre.
     podcast = genera_podcast(archivio)
     candidati_podcast = allegati_podcast(podcast, immagini)
+    corsi = avvisi.carica_corsi("em", base_url=cfg.URL_RAW_REPO)
+    if corsi:
+        log.info("Avvisi corsi: " + "; ".join(
+            f"{c['titolo'][:50]} ({avvisi.data_leggibile(c)})" for c in corsi))
     html_body = build_html(selezionati,
-                           podcast_allegato=candidati_podcast[0] if candidati_podcast else None)
+                           podcast_allegato=candidati_podcast[0] if candidati_podcast else None,
+                           corsi=corsi)
 
     if cfg.DRY_RUN:
         with open(cfg.DRY_RUN_FILE, "w", encoding="utf-8") as f:
@@ -1990,6 +2088,15 @@ def main():
             else:
                 f.write(testo_post_facebook(selezionati, wl))
                 log.info("Didascalia Facebook (post unico) in post_facebook.txt")
+        if corsi:
+            with open("post_facebook.txt", "a", encoding="utf-8") as f:
+                for c, quando in zip(corsi, prossimi_slot_corsi(len(corsi))):
+                    img = c.get("immagine_file") or c.get("immagine_url") or "nessuna"
+                    f.write(f"\n{'=' * 70}\nPOST CORSO — programmato per "
+                            f"{quando.strftime('%A %d/%m alle %H:%M')}\n"
+                            f"locandina: {img}\n{'=' * 70}\n\n"
+                            f"{avvisi.testo_facebook(c)}\n")
+            log.info(f"Avvisi corsi ({len(corsi)}) in post_facebook.txt")
         # In prova a vuoto i post non esistono ancora: il link andrà inserito a
         # mano dopo la pubblicazione vera.
         try:
@@ -2022,13 +2129,23 @@ def main():
         for media in candidati_podcast + [None]:
             if media is None and candidati_podcast:
                 log.warning("Invio con il podcast fallito: riprovo senza allegarlo")
-            ok = invia_email(oggetto, build_html(selezionati, podcast_allegato=media),
+            ok = invia_email(oggetto, build_html(selezionati, podcast_allegato=media, corsi=corsi),
                              allegati=immagini, media=media)
             if ok:
                 break
 
+    # Avvisi dei corsi su Telegram e Facebook dopo l'email: errori qui non toccano il digest.
+    if not cfg.SOLO_FACEBOOK:
+        try:
+            invia_telegram_corsi(corsi)
+        except Exception as e:
+            log.error(f"Avvisi corsi su Telegram non inviati: {e}")
     # Facebook dopo l'email: un errore qui non deve impedire l'invio del digest.
     pubblica_facebook(immagini, selezionati, wl)
+    try:
+        pubblica_facebook_corsi(corsi)
+    except Exception as e:
+        log.error(f"Post Facebook dei corsi non programmati: {e}")
     log.info("=== OK ===" if ok else "=== FALLITO ===")
     return ok
 
