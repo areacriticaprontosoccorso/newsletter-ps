@@ -104,6 +104,12 @@ jobs:
           pip install torch==2.6.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cpu
           pip install chatterbox-tts==0.1.7 pyloudnorm==0.2.0 "setuptools<81"
 
+      # Avvisi dei corsi (corsi.json): controllo non bloccante, un errore compare come
+      # avviso giallo nel riepilogo del run e la newsletter parte senza avvisi.
+      - name: Controlla corsi.json
+        continue-on-error: true
+        run: python corsi.py && python -m unittest discover -s tests
+
       # Newsletter completa: selezione, sintesi, schede, podcast (fino a 45 minuti,
       # poi si rinuncia), mail con l'MP3 allegato, post Facebook. Parte all'ora in
       # cui cron-job.org avvia il workflow; la mail esce a podcast pronto.
@@ -116,6 +122,9 @@ jobs:
           FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
           FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          # Solo per gli avvisi dei corsi su Telegram (senza questi due secret si saltano)
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           # 'success', 'failure' o vuoto (passo saltato): se non è 'success' il podcast non si tenta
           PODCAST_DIPENDENZE: ${{ steps.dipendenze_podcast.outcome || 'skipped' }}
           # niente barre di avanzamento nel log (sarebbero migliaia di righe)

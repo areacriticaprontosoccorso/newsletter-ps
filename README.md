@@ -154,3 +154,17 @@ DRY_RUN=1 python podcast.py pubblica     # scrive solo post_facebook_podcast.txt
 ## Fasce editoriali
 
 Il campo `fascia` (1–5, 5 = massimo) è un peso editoriale, **non** l'impact factor grezzo: usare l'IF come numero (NEJM ~96 contro Ann Emerg Med ~5) schiaccerebbe le riviste di urgenza, l'opposto di ciò che serve al digest. La fascia interviene **solo negli spareggi di composizione**: non entra nel prompt di filtro, non tocca il taglio dei candidati e non riordina mai il digest finale, che resta in ordine di rilevanza deciso dal modello. Nella maggior parte dei run non ha alcun effetto; quando interviene, il log riporta lo scambio e il profilo delle fasce.
+
+## Avvisi dei corsi (POCUS e NIV)
+
+Le locandine dei corsi POCUS e NIV compaiono in cima alla mail, in un messaggio Telegram
+e in un post Facebook (programmato alle 14:30). **Una locandina a settimana, a turno**:
+`turno: 0` = POCUS, `turno: 1` = NIV, con `ogni_settimane: 2`. Si parte lunedì 9/11/2026
+con POCUS, poi NIV il 16/11, e così via; nell'ultima uscita prima di un corso (7 giorni o meno)
+quel corso compare comunque. Si gestiscono da **`corsi.json`** (stesso formato di POCUS e NIV,
+più il campo `turno`); le locandine stanno in `locandine/`. Dopo l'ultimo giorno di un corso
+l'avviso sparisce da solo. Un errore nel file non blocca l'invio: `python corsi.py` lo controlla.
+
+Il **video del podcast** chiude con le locandine di tutti i corsi in corso (POCUS e NIV),
+`PODCAST_LOCANDINA_SEC` = 5 secondi ciascuna, in silenzio dopo la sigla. L'MP3 resta com'è.
+Per Telegram servono i secret `TELEGRAM_BOT_TOKEN` e `TELEGRAM_CHAT_ID` del repo.
