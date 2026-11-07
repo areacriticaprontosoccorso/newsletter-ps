@@ -175,6 +175,27 @@ ci sono l'elenco degli articoli, i corsi in programma e `www.ecm.unito.it`; la d
 limiti di Instagram (2200 caratteri, 30 hashtag). La locandina esce ogni settimana, a prescindere
 dalla frequenza dell'avviso su Telegram e in mail.
 
+**Schede essenziali.** Le schede di Instagram sono diverse da quelle della mail e di Facebook: solo
+numero, tipo di studio, rivista e data, titolo (in italiano) e il riquadro «Perché conta» (la rilevanza;
+in mancanza, la prima frase della sintesi), con il PubMed ID. I caratteri si adattano da soli alla
+lunghezza del titolo. Il codice è `instagram.py` (`dati_scheda`, `html_scheda`, `genera_schede`).
+
+**Reel delle schede.** Subito dopo il carosello esce un Reel 9:16 con le stesse diapositive, una dopo
+l'altra: 3 s la copertina, da 5 a 8 s ogni scheda (secondo le parole da leggere), 4 s ogni locandina.
+Le diapositive stanno in un riquadro 4:5 sotto i 240 px di sopra, che l'app copre col profilo. Senza
+musica: se esiste il file `IG_MUSICA` (`musica/sottofondo.mp3` nel repo), viene messo sotto, a volume
+basso e con dissolvenza finale. Va scelta una traccia senza diritti d'autore e con licenza che consenta
+l'uso commerciale. `IG_REEL_SCHEDE = False` in `config.py` spegne il Reel.
+Il Reel si carica con l'upload «resumable» dell'API (`rupload.facebook.com`), senza indirizzi pubblici.
+Non è stato provato con l'API reale (nei test è simulata): se il primo Reel non esce, nel log cerca
+«Instagram: Reel non pubblicato».
+
+**Reel del podcast (solo EM).** Subito dopo gli altri esce un Reel con un estratto del podcast: dal video
+già montato (`podcast/…mp4`) si prende l'inizio, tagliato alla fine della sezione (intro o articolo) che
+cade fra 45 e 90 s, la più vicina a 75 s (senza sezioni, 75 s); video 4:5 nel riquadro 9:16 con lo
+stesso fotogramma sfocato attorno, dissolvenza finale di immagine e voce. Il tempo delle sezioni è in
+`podcast/esito.json` (`sezioni`). `IG_REEL_PODCAST = False` lo spegne. Didascalia: `IG_PODCAST_INTESTAZIONE`.
+
 Serve un account Instagram **Business o Creator collegato alla Pagina Facebook**, e tre secret del repo:
 `FB_PAGE_ID`, `FB_PAGE_TOKEN` (il token deve avere i permessi `instagram_basic`,
 `instagram_content_publish` e `pages_read_engagement`) e `IG_USER_ID` (l'ID dell'account Instagram).
@@ -182,6 +203,5 @@ Facoltativo: `IG_PAGE_TOKEN`, un token solo per Instagram; se c'è si usa quello
 (i post Facebook) non va toccato, altrimenti Instagram usa `FB_PAGE_TOKEN`.
 Senza `IG_USER_ID` non succede nulla; `IG_ABILITATO=0` lo spegne. Le diapositive passano dalla Pagina
 come foto **non pubblicate** (Instagram scarica da lì l'indirizzo pubblico): nulla compare su Facebook.
-Un errore Instagram non blocca mai l'invio. Con `dry_run` non si chiama nessuna API: le diapositive e
-la didascalia finiscono nell'artefatto del run (cartella `instagram/`). Il codice sta in `instagram.py`.
+Un errore Instagram non blocca mai l'invio. Con `dry_run` non si chiama nessuna API: diapositive, Reel (`reel-schede.mp4`, `reel-podcast.mp4`) e didascalia finiscono nell'artefatto del run (cartella `instagram/`). Il codice sta in `instagram.py`.
 
