@@ -88,6 +88,16 @@ FB_GIORNI_FERIALI    = {0, 1, 2, 3, 4}   # lunedì=0 ... venerdì=4
 # per non sovrapporsi ai post degli articoli (16:00) né a quelli di POCUS sulla stessa Pagina.
 FB_ORA_CORSI         = 14
 FB_MINUTO_CORSI      = 30
+# Instagram: un carosello a ogni uscita (copertina del podcast, schede degli articoli, locandine
+# dei corsi). Attivo solo con IG_USER_ID (ID dell'account Instagram Business collegato alla
+# Pagina) e con FB_PAGE_ID / FB_PAGE_TOKEN; senza, non fa nulla. IG_ABILITATO=0 lo spegne.
+IG_ABILITATO    = os.environ.get("IG_ABILITATO", "1").strip().lower() not in ("0", "false", "no")
+IG_USER_ID      = os.environ.get("IG_USER_ID", "").strip()
+IG_DIR          = "instagram"
+IG_INTESTAZIONE = "EM Weekly Digest — Settimana {settimana}/{anno}\nGli articoli più rilevanti per il Pronto Soccorso e l'Area Critica."
+IG_CHIUSURA     = "Sintesi generate con supporto di intelligenza artificiale: verifica sempre la fonte originale. Iscrizione alla newsletter dal link in bio."
+IG_HASHTAG      = "#medicinadurgenza #prontosoccorso #areacritica #emergencymedicine #FOAMed #letteraturamedica"
+
 # Base pubblica dei file del repo (locandine dei corsi): https://.../main/<percorso>
 URL_RAW_REPO = "https://raw.githubusercontent.com/areacriticaprontosoccorso/newsletter-ps/main/"
 

@@ -166,3 +166,20 @@ l'avviso sparisce da solo. Un errore nel file non blocca l'invio: `python corsi.
 
 Il **video del podcast** chiude con le locandine di tutti i corsi in corso (POCUS e NIV),
 `PODCAST_LOCANDINA_SEC` = 5 secondi ciascuna, in silenzio dopo la sigla. L'MP3 resta com'è.
+
+## Instagram
+
+Il lunedì, dopo la mail, esce su Instagram **un carosello** con la copertina del podcast, le schede degli articoli e le locandine di **entrambi** i corsi (POCUS e NIV). Le diapositive sono
+JPEG 4:5 (1080x1350): le schede e le locandine stanno intere, con bande bianche ai lati. Nel testo
+ci sono l'elenco degli articoli, i corsi in programma e `www.ecm.unito.it`; la didascalia rispetta i
+limiti di Instagram (2200 caratteri, 30 hashtag). La locandina esce ogni settimana, a prescindere
+dalla frequenza dell'avviso su Telegram e in mail.
+
+Serve un account Instagram **Business o Creator collegato alla Pagina Facebook**, e tre secret del repo:
+`FB_PAGE_ID`, `FB_PAGE_TOKEN` (il token deve avere i permessi `instagram_basic`,
+`instagram_content_publish` e `pages_read_engagement`) e `IG_USER_ID` (l'ID dell'account Instagram).
+Senza `IG_USER_ID` non succede nulla; `IG_ABILITATO=0` lo spegne. Le diapositive passano dalla Pagina
+come foto **non pubblicate** (Instagram scarica da lì l'indirizzo pubblico): nulla compare su Facebook.
+Un errore Instagram non blocca mai l'invio. Con `dry_run` non si chiama nessuna API: le diapositive e
+la didascalia finiscono nell'artefatto del run (cartella `instagram/`). Il codice sta in `instagram.py`.
+

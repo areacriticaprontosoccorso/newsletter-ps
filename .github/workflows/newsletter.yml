@@ -121,6 +121,8 @@ jobs:
           DESTINATARI: ${{ secrets.DESTINATARI }}
           FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
           FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
+          # Instagram (carosello): senza questo secret non si pubblica
+          IG_USER_ID: ${{ secrets.IG_USER_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           # 'success', 'failure' o vuoto (passo saltato): se non è 'success' il podcast non si tenta
           PODCAST_DIPENDENZE: ${{ steps.dipendenze_podcast.outcome || 'skipped' }}
@@ -150,6 +152,7 @@ jobs:
             anteprima_digest.html
             newsletter.log
             immagini/
+            instagram/
             post_facebook.txt
             post_facebook_podcast.txt
             post_gruppo.txt

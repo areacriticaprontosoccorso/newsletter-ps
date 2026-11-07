@@ -40,6 +40,7 @@ from datetime import datetime, timedelta, timezone, time as dt_time
 
 import config as cfg
 import corsi as avvisi
+import instagram
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1337,6 +1338,27 @@ def genera_immagini(articoli):
     return percorsi
 
 
+def pubblica_instagram(articoli, immagini, wl, dry_run=False):
+    """Carosello Instagram: copertina del podcast, schede degli articoli, locandine di tutti i
+    corsi in corso (POCUS e NIV). Mai bloccante."""
+    try:
+        cop = os.path.join(cfg.PODCAST_DIR, "copertina.png")
+        # La copertina conta solo se e' di questa corsa (non un avanzo di una prova precedente)
+        if not (os.path.exists(cop) and time.time() - os.path.getmtime(cop) < 6 * 3600):
+            cop = None
+        corsi_ig = avvisi.carica_corsi("em", base_url=cfg.URL_RAW_REPO,
+                                       ignora_frequenza=True, massimo=4)
+        voci = instagram.assembla(cop, immagini, corsi_ig)
+        didascalia = instagram.componi_didascalia(
+            cfg.IG_INTESTAZIONE.format(settimana=wl["settimana"], anno=wl["anno"]),
+            [a.get("titolo_it") or a["titolo"] for a in articoli], corsi_ig,
+            cfg.IG_CHIUSURA, cfg.IG_HASHTAG, data_leggibile=avvisi.data_leggibile)
+        return instagram.pubblica(voci, didascalia, cfg, dry_run=dry_run)
+    except Exception as e:
+        log.error(f"Instagram non pubblicato: {e}")
+        return None
+
+
 def prossimi_slot_corsi(n):
     """Slot feriali per i post sui corsi: stesso criterio di prossimi_slot_feriali,
     ma a un orario proprio (FB_ORA_CORSI) per non sovrapporsi ai post degli articoli."""
@@ -2010,6 +2032,7 @@ def main():
         log.info("=== DRY RUN: nessuna email inviata ===")
         log.info(f"Anteprima HTML scritta in {cfg.DRY_RUN_FILE}")
         log.info(f"Schede PNG in {cfg.IMG_DIR}/: {len(immagini)}")
+        pubblica_instagram(selezionati, immagini, wl, dry_run=True)
         log.info("Podcast da allegare: "
                  + (", poi ".join(candidati_podcast) if candidati_podcast
                     else "nessuno (la mail partirebbe senza)"))
@@ -2104,6 +2127,8 @@ def main():
         pubblica_facebook_corsi(corsi)
     except Exception as e:
         log.error(f"Post Facebook dei corsi non programmati: {e}")
+    if not cfg.SOLO_FACEBOOK:
+        pubblica_instagram(selezionati, immagini, wl)
     log.info("=== OK ===" if ok else "=== FALLITO ===")
     return ok
 
