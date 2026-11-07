@@ -178,6 +178,8 @@ dalla frequenza dell'avviso su Telegram e in mail.
 Serve un account Instagram **Business o Creator collegato alla Pagina Facebook**, e tre secret del repo:
 `FB_PAGE_ID`, `FB_PAGE_TOKEN` (il token deve avere i permessi `instagram_basic`,
 `instagram_content_publish` e `pages_read_engagement`) e `IG_USER_ID` (l'ID dell'account Instagram).
+Facoltativo: `IG_PAGE_TOKEN`, un token solo per Instagram; se c'è si usa quello e `FB_PAGE_TOKEN`
+(i post Facebook) non va toccato, altrimenti Instagram usa `FB_PAGE_TOKEN`.
 Senza `IG_USER_ID` non succede nulla; `IG_ABILITATO=0` lo spegne. Le diapositive passano dalla Pagina
 come foto **non pubblicate** (Instagram scarica da lì l'indirizzo pubblico): nulla compare su Facebook.
 Un errore Instagram non blocca mai l'invio. Con `dry_run` non si chiama nessuna API: le diapositive e
