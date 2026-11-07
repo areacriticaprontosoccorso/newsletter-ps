@@ -50,6 +50,7 @@ REEL_L, REEL_A = 1080, 1920            # 9:16
 REEL_Y = 240                           # sopra il riquadro 4:5: la zona che l'app copre col profilo
 REEL_COPERTINA_S = 3.0                 # durata delle diapositive nel Reel, in secondi
 REEL_LOCANDINA_S = 4.0
+REEL_LOGHI_S = 3.0                     # diapositiva finale con i loghi
 REEL_SCHEDA_MIN_S, REEL_SCHEDA_MAX_S = 5.0, 8.0
 REEL_PAROLE_AL_SEC = 4.0               # lettura veloce: 3 s fissi + parole / 4
 ESTRATTO_MIN_S, ESTRATTO_STANDARD_S, ESTRATTO_MAX_S = 45.0, 75.0, 90.0
@@ -98,8 +99,8 @@ def prepara_diapositive(voci, cartella, prefisso="ig"):
 
 
 def limita_diapositive(voci, massimo=MAX_DIAPOSITIVE):
-    """voci: [(percorso, sfondo, tipo)] con tipo in 'copertina' | 'scheda' | 'locandina'.
-    Oltre il massimo si tolgono le ultime schede: copertina e locandine restano."""
+    """voci: [(percorso, sfondo, tipo)] con tipo in 'copertina' | 'scheda' | 'locandina' | 'loghi'.
+    Oltre il massimo si tolgono le ultime schede: copertina, locandine e loghi restano."""
     voci = list(voci)
     while len(voci) > massimo:
         for i in range(len(voci) - 1, -1, -1):
@@ -107,7 +108,13 @@ def limita_diapositive(voci, massimo=MAX_DIAPOSITIVE):
                 del voci[i]
                 break
         else:
-            del voci[massimo:]
+            # niente schede da togliere: si tolgono le prime locandine, i loghi restano
+            for i, v in enumerate(voci):
+                if v[2] == "locandina":
+                    del voci[i]
+                    break
+            else:
+                del voci[massimo:]
     return voci
 
 
@@ -257,6 +264,8 @@ def durate_reel(tipi, parole=None):
                                     max(REEL_SCHEDA_MIN_S, 3.0 + n / REEL_PAROLE_AL_SEC)), 2))
         elif t == "copertina":
             durate.append(REEL_COPERTINA_S)
+        elif t == "loghi":
+            durate.append(REEL_LOGHI_S)
         else:
             durate.append(REEL_LOCANDINA_S)
     return durate
@@ -312,10 +321,11 @@ def punto_di_taglio(sezioni):
     return min(fini, key=lambda x: abs(x - ESTRATTO_STANDARD_S))
 
 
-def crea_estratto_podcast(mp4, dest, sezioni=None, sfondo_sfocato=True):
+def crea_estratto_podcast(mp4, dest, sezioni=None, chiusura=None, sfondo="#1a1a1a"):
     """Estratto del video del podcast, in 9:16: il video 4:5 nel riquadro sotto la zona coperta
     dall'app, sopra e sotto lo stesso fotogramma sfocato; dissolvenza finale di immagine e voce.
-    Restituisce (dest, durata). Solleva se ffmpeg fallisce."""
+    Con `chiusura` (immagine 4:5, i loghi) in coda REEL_LOGHI_S secondi di quella, in silenzio.
+    Restituisce (dest, durata dell'estratto, senza la chiusura). Solleva se ffmpeg fallisce."""
     durata = punto_di_taglio(sezioni)
     try:
         lung = float(subprocess.run(
@@ -325,15 +335,24 @@ def crea_estratto_podcast(mp4, dest, sezioni=None, sfondo_sfocato=True):
     except (subprocess.CalledProcessError, ValueError, OSError):
         pass
     st = max(0.0, durata - 0.8)
-    fg = f"[a]scale={LARGHEZZA}:{ALTEZZA}[fg];"
-    bg = (f"[b]scale={REEL_L}:{REEL_A}:force_original_aspect_ratio=increase,crop={REEL_L}:{REEL_A},"
-          f"boxblur=40:5[bg];" if sfondo_sfocato else
-          f"color=c=black:s={REEL_L}x{REEL_A}[bg];")
-    graf = (f"[0:v]split=2[a][b];{bg}{fg}[bg][fg]overlay=0:{REEL_Y},"
-            f"fade=t=out:st={st:.2f}:d=0.8,format=yuv420p[v];"
-            f"[0:a]afade=t=out:st={st:.2f}:d=0.8[au]")
+    graf = (f"[0:v]split=2[a][b];"
+            f"[b]scale={REEL_L}:{REEL_A}:force_original_aspect_ratio=increase,crop={REEL_L}:{REEL_A},"
+            f"boxblur=40:5[bg];[a]scale={LARGHEZZA}:{ALTEZZA}[fg];"
+            f"[bg][fg]overlay=0:{REEL_Y},fade=t=out:st={st:.2f}:d=0.8,fps=30,setsar=1,format=yuv420p[v0];"
+            f"[0:a]afade=t=out:st={st:.2f}:d=0.8,aformat=sample_rates=44100:channel_layouts=stereo[a0]")
+    ingressi = ["-i", mp4]
+    if chiusura and os.path.exists(chiusura):
+        ingressi += ["-loop", "1", "-framerate", "30", "-t", f"{REEL_LOGHI_S:.3f}", "-i",
+                     os.path.abspath(chiusura), "-f", "lavfi", "-t", f"{REEL_LOGHI_S:.3f}", "-i",
+                     "anullsrc=r=44100:cl=stereo"]
+        graf += (f";[1:v]scale={LARGHEZZA}:{ALTEZZA},setsar=1,"
+                 f"pad={REEL_L}:{REEL_A}:0:{REEL_Y}:color={_colore_ffmpeg(sfondo)},fps=30,format=yuv420p[v1];"
+                 "[2:a]aformat=sample_rates=44100:channel_layouts=stereo[a1];"
+                 "[v0][a0][v1][a1]concat=n=2:v=1:a=1[v][au]")
+    else:
+        graf += ";[v0]null[v];[a0]anull[au]"
     try:
-        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", mp4, "-t", f"{durata:.3f}",
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-t", f"{durata:.3f}", *ingressi,
                         "-filter_complex", graf, "-map", "[v]", "-map", "[au]", "-r", "30",
                         "-c:v", "libx264", "-preset", "veryfast", "-crf", "24", "-c:a", "aac",
                         "-b:a", "128k", "-movflags", "+faststart", dest],
@@ -341,6 +360,7 @@ def crea_estratto_podcast(mp4, dest, sezioni=None, sfondo_sfocato=True):
     except subprocess.CalledProcessError as e:
         raise RuntimeError((e.stderr or b"").decode("utf-8", "replace")[-300:] or "ffmpeg") from None
     return dest, durata
+
 
 # ──────────────────────────────── didascalia ───────────────────────────────
 
@@ -360,9 +380,10 @@ def taglia_didascalia(testo, massimo=MAX_DIDASCALIA, max_hashtag=MAX_HASHTAG):
     return testo
 
 
-def assembla(copertina, schede, corsi):
+def assembla(copertina, schede, corsi, chiusura=None):
     """Mette in ordine le diapositive: copertina (se c'e'), schede degli articoli, locandine
-    dei corsi (una sola volta per file). `corsi`: voci di corsi.carica_corsi()."""
+    dei corsi (una sola volta per file) e, sempre per ultima, la diapositiva dei loghi
+    (`chiusura`, se il file esiste). `corsi`: voci di corsi.carica_corsi()."""
     voci = []
     if copertina and os.path.exists(copertina):
         voci.append((copertina, SFONDO_SCHEDE, "copertina"))
@@ -373,6 +394,8 @@ def assembla(copertina, schede, corsi):
         if f and f not in viste and os.path.exists(f):
             viste.add(f)
             voci.append((f, SFONDO_LOCANDINE, "locandina"))
+    if chiusura and os.path.exists(chiusura):
+        voci.append((chiusura, SFONDO_LOCANDINE, "loghi"))
     return voci
 
 
@@ -616,7 +639,9 @@ def pubblica_reel_podcast(mp4, sezioni, didascalia, cfg, dry_run=False):
         if not dry_run and not configurato(cfg):
             return None
         os.makedirs(cfg.IG_DIR, exist_ok=True)
-        dest, durata = crea_estratto_podcast(mp4, os.path.join(cfg.IG_DIR, "reel-podcast.mp4"), sezioni)
+        dest, durata = crea_estratto_podcast(mp4, os.path.join(cfg.IG_DIR, "reel-podcast.mp4"), sezioni,
+                                             getattr(cfg, "IG_LOGHI", None),
+                                             getattr(cfg, "COLOR_DARK", "#1a1a1a"))
         mb = os.path.getsize(dest) / 1e6
         if dry_run:
             with open(os.path.join(cfg.IG_DIR, "didascalia-podcast.txt"), "w", encoding="utf-8") as f:

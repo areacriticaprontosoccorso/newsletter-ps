@@ -104,6 +104,8 @@ IG_CHIUSURA     = "Sintesi generate con supporto di intelligenza artificiale: ve
 IG_REEL_SCHEDE  = True
 IG_REEL_PODCAST = True
 IG_MUSICA       = "musica/sottofondo.mp3"
+# Diapositiva con i tre loghi: sempre l'ultima del carosello e dei Reel (se il file esiste).
+IG_LOGHI        = "loghi/chiusura.png"
 IG_PODCAST_INTESTAZIONE = "EM Weekly Digest — il podcast della settimana {settimana}/{anno}\nUn estratto: il podcast completo arriva con la newsletter."
 IG_HASHTAG      = "#medicinadurgenza #prontosoccorso #areacritica #emergencymedicine #FOAMed #letteraturamedica"
 
