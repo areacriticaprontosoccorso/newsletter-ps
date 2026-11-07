@@ -227,6 +227,14 @@ class Ingresso(unittest.TestCase):
             self.assertIsNone(ig.pubblica([(self.img, "#fff", "scheda")], "x", c))
         ch.assert_not_called()
 
+    def test_token_instagram_dedicato(self):
+        for extra, atteso in (({"IG_PAGE_TOKEN": "TOK_IG"}, "TOK_IG"), ({}, "TOK")):
+            c = cfg_finto(self.d, **extra)
+            with mock.patch.object(ig, "pubblica_carosello", return_value="ok") as pc, \
+                 mock.patch.object(ig, "prepara_diapositive", return_value=[self.img]):
+                ig.pubblica([(self.img, "#fff", "scheda")], "x", c)
+            self.assertEqual(pc.call_args[0][4], atteso)
+
     def test_disabilitato(self):
         c = cfg_finto(self.d, IG_ABILITATO=False)
         with mock.patch.object(ig, "_chiama") as ch:

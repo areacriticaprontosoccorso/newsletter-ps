@@ -260,7 +260,10 @@ def pubblica(voci, didascalia, cfg, dry_run=False):
         if not voci:
             log.info("Instagram: niente da pubblicare")
             return None
-        page_id, token = getattr(cfg, "FB_PAGE_ID", ""), getattr(cfg, "FB_PAGE_TOKEN", "")
+        # Token dedicato a Instagram (IG_PAGE_TOKEN) se c'e', cosi' FB_PAGE_TOKEN, che serve ai post
+        # Facebook, non va toccato; altrimenti si usa quello della Pagina.
+        page_id = getattr(cfg, "FB_PAGE_ID", "")
+        token = getattr(cfg, "IG_PAGE_TOKEN", "") or getattr(cfg, "FB_PAGE_TOKEN", "")
         configurato = bool(getattr(cfg, "IG_USER_ID", "") and page_id and token)
         if not dry_run and not configurato:
             log.warning("Instagram: IG_USER_ID, FB_PAGE_ID o FB_PAGE_TOKEN mancanti - non pubblico")
