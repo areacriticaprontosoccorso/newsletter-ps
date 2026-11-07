@@ -1371,7 +1371,7 @@ def pubblica_instagram(articoli, immagini, wl, dry_run=False):
             cop = None
         corsi_ig = avvisi.carica_corsi("em", base_url=cfg.URL_RAW_REPO,
                                        ignora_frequenza=True, massimo=4)
-        voci = instagram.assembla(cop, schede, corsi_ig)
+        voci = instagram.assembla(cop, schede, corsi_ig, getattr(cfg, "IG_LOGHI", None))
         didascalia = instagram.componi_didascalia(
             cfg.IG_INTESTAZIONE.format(settimana=wl["settimana"], anno=wl["anno"]),
             [a.get("titolo_it") or a["titolo"] for a in articoli], corsi_ig,

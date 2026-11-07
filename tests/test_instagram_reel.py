@@ -102,6 +102,39 @@ class GeneraSchede(unittest.TestCase):
         self.assertEqual(ig.genera_schede([], WL, cfg_schede(self.d), os.path.join(self.d, "s")), ([], []))
 
 
+class Loghi(unittest.TestCase):
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.f = {n: os.path.join(self.d, n) for n in ("c.png", "s1.png", "l.jpg", "loghi.png")}
+        for f in self.f.values():
+            with open(f, "wb") as fh:
+                fh.write(b"x")
+
+    def tearDown(self):
+        shutil.rmtree(self.d, ignore_errors=True)
+
+    def test_loghi_sempre_per_ultimi(self):
+        corsi = [{"immagine_file": self.f["l.jpg"]}]
+        voci = ig.assembla(self.f["c.png"], [self.f["s1.png"]], corsi, self.f["loghi.png"])
+        self.assertEqual([t for _, _, t in voci], ["copertina", "scheda", "locandina", "loghi"])
+        self.assertEqual(voci[-1][0], self.f["loghi.png"])
+
+    def test_senza_file_dei_loghi_nessuna_diapositiva_in_piu(self):
+        for ch in (None, "/non/esiste.png"):
+            voci = ig.assembla(None, [self.f["s1.png"]], [], ch)
+            self.assertEqual([t for _, _, t in voci], ["scheda"])
+
+    def test_oltre_il_massimo_i_loghi_restano(self):
+        voci = ig.assembla(self.f["c.png"], [self.f["s1.png"]] * 12, [], self.f["loghi.png"])
+        voci = ig.limita_diapositive(voci)
+        self.assertEqual(len(voci), ig.MAX_DIAPOSITIVE)
+        self.assertEqual(voci[0][2], "copertina")
+        self.assertEqual(voci[-1][2], "loghi")
+
+    def test_durata_nel_reel(self):
+        self.assertEqual(ig.durate_reel(["scheda", "loghi"], [30])[1], ig.REEL_LOGHI_S)
+
+
 class Durate(unittest.TestCase):
     def test_per_tipo(self):
         d = ig.durate_reel(["copertina", "scheda", "scheda", "locandina"], [2, 200])
@@ -166,6 +199,16 @@ class Video(unittest.TestCase):
         self.assertAlmostEqual(dur, 20.0, delta=0.2)      # taglio 75 s oltre la fine: tutto il video
         self.assertAlmostEqual(float(durata(dest)), 20.0, delta=0.3)
         self.assertEqual(durata(dest, "stream=width,height").split()[0], "1080,1920")
+
+    def test_estratto_podcast_con_loghi_in_coda(self):
+        src = os.path.join(self.d, "pod.mp4")
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i",
+                        "color=c=blue:s=1080x1350:r=5:d=10", "-f", "lavfi", "-i",
+                        "sine=frequency=300:duration=10", "-c:v", "libx264", "-preset", "ultrafast",
+                        "-c:a", "aac", "-shortest", src], check=True)
+        dest, dur = ig.crea_estratto_podcast(src, os.path.join(self.d, "e.mp4"), None, self.f[0])
+        self.assertAlmostEqual(dur, 10.0, delta=0.2)      # l'estratto, senza la chiusura
+        self.assertAlmostEqual(float(durata(dest)), 10.0 + ig.REEL_LOGHI_S, delta=0.4)
 
 
 class ApiReel(unittest.TestCase):
