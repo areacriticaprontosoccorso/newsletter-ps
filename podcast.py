@@ -1230,6 +1230,7 @@ def genera(archivio=None, copione_file=None):
                      modello=getattr(voce, "modello_usato", None),
                      voce=cfg.PODCAST_GEMINI_VOCE if gemini else cfg.PODCAST_VOCE_RIF)
         esito.update(ok=True, mp3=mp3, mp4=mp4, durata=round(durata, 1),
+                     sezioni=[[round(a, 2), round(b, 2)] for a, b in sezioni],
                      velocita=round(atempo, 3), verifica=verifica,
                      settimana=wl["settimana"], anno=wl["anno"], n_articoli=len(articoli))
     except Exception as e:

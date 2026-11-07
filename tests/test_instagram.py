@@ -29,6 +29,7 @@ def png(path, larghezza, altezza, rgb=(200, 30, 30)):
 def cfg_finto(cartella, **kw):
     c = types.SimpleNamespace(IG_ABILITATO=True, IG_USER_ID="17841000", FB_PAGE_ID="555",
                               FB_PAGE_TOKEN="TOK", FB_API_VERSION="v21.0",
+                              IG_REEL_SCHEDE=False, IG_REEL_PODCAST=False,
                               IG_DIR=os.path.join(cartella, "ig"))
     c.__dict__.update(kw)
     return c

@@ -1338,22 +1338,51 @@ def genera_immagini(articoli):
     return percorsi
 
 
-def pubblica_instagram(articoli, immagini, wl, dry_run=False):
-    """Carosello Instagram: copertina del podcast, schede degli articoli, locandine di tutti i
-    corsi in corso (POCUS e NIV). Mai bloccante."""
+def _podcast_per_instagram():
+    """(mp4, sezioni) del podcast di questa corsa, dall'esito della generazione; (None, None) se
+    il podcast non c'e' o non e' riuscito."""
     try:
+        with open(cfg.PODCAST_ESITO, encoding="utf-8") as f:
+            esito = json.load(f)
+        mp4 = esito.get("mp4")
+        if esito.get("ok") and mp4 and os.path.exists(mp4):
+            return mp4, esito.get("sezioni")
+    except (OSError, ValueError):
+        pass
+    return None, None
+
+
+def pubblica_instagram(articoli, immagini, wl, dry_run=False):
+    """Instagram, mai bloccante: un carosello (copertina del podcast, schede essenziali degli
+    articoli, locandine di tutti i corsi in corso), il Reel con le stesse diapositive e il Reel
+    con un estratto del podcast."""
+    try:
+        if not getattr(cfg, "IG_ABILITATO", True):
+            return None
+        if not dry_run and not instagram.configurato(cfg):
+            log.info("Instagram: non configurato (IG_USER_ID / FB_PAGE_ID / IG_PAGE_TOKEN) - salto")
+            return None
+        schede, parole = instagram.genera_schede(articoli, wl, cfg,
+                                                 os.path.join(cfg.IG_DIR, "schede"))
+        schede = schede or immagini        # ripiego: le schede della mail
         cop = os.path.join(cfg.PODCAST_DIR, "copertina.png")
         # La copertina conta solo se e' di questa corsa (non un avanzo di una prova precedente)
         if not (os.path.exists(cop) and time.time() - os.path.getmtime(cop) < 6 * 3600):
             cop = None
         corsi_ig = avvisi.carica_corsi("em", base_url=cfg.URL_RAW_REPO,
                                        ignora_frequenza=True, massimo=4)
-        voci = instagram.assembla(cop, immagini, corsi_ig)
+        voci = instagram.assembla(cop, schede, corsi_ig)
         didascalia = instagram.componi_didascalia(
             cfg.IG_INTESTAZIONE.format(settimana=wl["settimana"], anno=wl["anno"]),
             [a.get("titolo_it") or a["titolo"] for a in articoli], corsi_ig,
             cfg.IG_CHIUSURA, cfg.IG_HASHTAG, data_leggibile=avvisi.data_leggibile)
-        return instagram.pubblica(voci, didascalia, cfg, dry_run=dry_run)
+        post = instagram.pubblica(voci, didascalia, cfg, dry_run=dry_run, parole=parole)
+        mp4, sezioni = _podcast_per_instagram()
+        didascalia_podcast = instagram.componi_didascalia(
+            cfg.IG_PODCAST_INTESTAZIONE.format(settimana=wl["settimana"], anno=wl["anno"]),
+            [], None, cfg.IG_CHIUSURA, cfg.IG_HASHTAG)
+        instagram.pubblica_reel_podcast(mp4, sezioni, didascalia_podcast, cfg, dry_run=dry_run)
+        return post
     except Exception as e:
         log.error(f"Instagram non pubblicato: {e}")
         return None
