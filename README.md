@@ -173,6 +173,17 @@ Alla fine di ogni run (`avviso.py`, ultimo passo del workflow) il log del run vi
 
 Serve il secret `AVVISI_EMAIL` (l'indirizzo che riceve gli avvisi; senza, l'avviso va all'indirizzo mittente della newsletter). Non partono nelle prove (`dry_run`, `solo_*`). Un avviso che non riesce a partire non fa mai fallire il run. `avviso.py` è una copia identica nei tre repo (EM, POCUS, NIV): se lo modifichi, modificalo in tutti e tre.
 
+## Monitor (`monitor.py`, workflow «Monitor newsletter»)
+
+Gira da questo repo perché qui stanno tutti i secret, ma riguarda le tre newsletter (EM, POCUS, NIV). Due compiti, via email a `AVVISI_EMAIL`:
+
+- **Controllo dell'avvio** (lunedì, mercoledì e venerdì alle 12:30, ora di Roma d'inverno): verifica che il run del giorno sia partito (cron-job.org che non spara), riuscito e non bloccato (oltre 120 minuti per EM, 40 per POCUS e NIV). Se è tutto regolare non scrive; se ripartito a mano e riuscito, va bene.
+- **Statistiche della settimana** (domenica alle 18:00): iscritti di POCUS e NIV (totale, nuovi, disiscritti stimati dalla storia di `subscribers.json`), destinatari di EM (solo il totale: la lista è un secret e non ha storia), e per ogni post Instagram e Facebook della settimana visualizzazioni, copertura, salvataggi, condivisioni, like e commenti. L'email contiene solo conteggi, mai indirizzi.
+
+Si lanciano anche a mano: Actions → *Monitor newsletter* → *Run workflow* → `statistiche` o `controlla`.
+
+**Permessi per le statistiche.** Per visualizzazioni, copertura, salvataggi e condivisioni su Instagram il token deve avere `instagram_manage_insights` (oltre a `pages_read_engagement`); per le visualizzazioni dei post Facebook, `read_insights`. Se mancano, l'email lo dice e mostra comunque like, commenti e reazioni. Le metriche cambiano spesso: quelle non lette compaiono come «n/d» senza far fallire nulla.
+
 ## Instagram
 
 Il lunedì, dopo la mail, esce su Instagram **un carosello** con la copertina del podcast, le schede degli articoli e le locandine di **entrambi** i corsi (POCUS e NIV). Le diapositive sono
