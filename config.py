@@ -93,6 +93,17 @@ FB_MINUTO_CORSI      = 30
 # Pagina) e con FB_PAGE_ID / FB_PAGE_TOKEN; senza, non fa nulla. IG_ABILITATO=0 lo spegne.
 IG_ABILITATO    = os.environ.get("IG_ABILITATO", "1").strip().lower() not in ("0", "false", "no")
 IG_USER_ID      = os.environ.get("IG_USER_ID", "").strip()
+
+# X (ex Twitter): un post con il Reel delle schede e un testo breve (x_social.py). Servono le quattro chiavi
+# dell'app X, come secret del repo; senza, X viene saltato. X_REEL = False lo spegne. X addebita ogni post
+# sui crediti dell'app. X_HASHTAG / X_INVITO: hashtag e riga d'invito (se vuoti: i primi tre di IG_HASHTAG, nessun invito).
+X_REEL          = True
+X_API_KEY       = os.environ.get("X_API_KEY", "").strip()
+X_API_SECRET    = os.environ.get("X_API_SECRET", "").strip()
+X_ACCESS_TOKEN  = os.environ.get("X_ACCESS_TOKEN", "").strip()
+X_ACCESS_SECRET = os.environ.get("X_ACCESS_SECRET", "").strip()
+X_HASHTAG       = ""
+X_INVITO        = ""
 # Token della Pagina usato solo da Instagram: se manca si usa FB_PAGE_TOKEN (che resta dei post Facebook).
 IG_PAGE_TOKEN   = os.environ.get("IG_PAGE_TOKEN", "").strip()
 IG_DIR          = "instagram"
