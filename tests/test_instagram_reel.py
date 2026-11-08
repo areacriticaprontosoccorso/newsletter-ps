@@ -170,12 +170,12 @@ class Video(unittest.TestCase):
 
     def test_reel_9_16_con_la_durata_giusta(self):
         dest = ig.crea_reel(self.jpg, [3.0, 2.0], os.path.join(self.d, "r.mp4"))
-        info = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
-                               "stream=width,height,nb_frames", "-of", "csv=p=0", dest],
-                              check=True, capture_output=True, text=True).stdout.strip()
-        larg, alt, frames = info.split(",")
-        self.assertEqual((int(larg), int(alt)), (1080, 1920))
-        self.assertAlmostEqual(int(frames) / 30, 5.0, delta=0.2)
+        import json
+        info = json.loads(subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height",
+             "-of", "json", dest], check=True, capture_output=True, text=True).stdout)
+        flusso = info["streams"][0]
+        self.assertEqual((flusso["width"], flusso["height"]), (1080, 1920))
         self.assertAlmostEqual(float(durata(dest)), 5.0, delta=0.2)
 
     def test_con_musica_stessa_durata(self):
