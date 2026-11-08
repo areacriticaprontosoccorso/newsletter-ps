@@ -85,7 +85,7 @@ FB_ORA               = 11   # ora di pubblicazione (0-23), fuso di Roma
 FB_MINUTO            = 0
 FB_GIORNI_FERIALI    = {0, 1, 2, 3, 4}   # lunedì=0 ... venerdì=4
 # Post sui corsi (locandine POCUS e NIV, a settimane alterne): a un orario proprio,
-# per non sovrapporsi ai post degli articoli (16:00) né a quelli di POCUS sulla stessa Pagina.
+# per non sovrapporsi ai post degli articoli (11:00) né a quelli di POCUS sulla stessa Pagina.
 FB_ORA_CORSI         = 14
 FB_MINUTO_CORSI      = 30
 # Instagram: un carosello a ogni uscita (copertina del podcast, schede degli articoli, locandine

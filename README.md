@@ -90,7 +90,7 @@ Tutti i parametri stanno in `config.py`. I principali:
 
 **Modello** — `ANTHROPIC_MODEL = "claude-sonnet-5"`. ⚠️ Questo modello **rifiuta** il parametro `temperature` e il prefill del turno assistant (HTTP 400): non reintrodurli.
 
-**Facebook** — `FB_SCHEDE` (False: le schede degli articoli non si pubblicano, sulla Pagina esce solo il video del podcast; True ripristina un post per articolo nei feriali), `FB_API_VERSION` (v21.0), `FB_UN_POST_AL_GIORNO` (True: un articolo per post, non un elenco unico), `FB_ORA` (16), `FB_MINUTO` (0), `FB_GIORNI_FERIALI` (lun–ven), `FB_FUSO` (Europe/Rome). I post vengono programmati sugli slot feriali successivi.
+**Facebook** — `FB_SCHEDE` (False: le schede degli articoli non si pubblicano, sulla Pagina esce solo il video del podcast; True ripristina un post per articolo nei feriali), `FB_API_VERSION` (v21.0), `FB_UN_POST_AL_GIORNO` (True: un articolo per post, non un elenco unico), `FB_ORA` (11), `FB_MINUTO` (0), `FB_GIORNI_FERIALI` (lun–ven), `FB_FUSO` (Europe/Rome). I post vengono programmati sugli slot feriali successivi.
 
 **Branding** — `NOME_NEWSLETTER`, `NOME_SERVIZIO`, `LOGO_URL` (deve essere un URL pubblico: le email non supportano immagini locali o base64), colori.
 
