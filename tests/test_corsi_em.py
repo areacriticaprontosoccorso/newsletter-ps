@@ -69,15 +69,27 @@ class TestAlternanza(unittest.TestCase):
 
 
 class TestPodcast(unittest.TestCase):
-    def test_locandine_video_due_file_distinti(self):
+    def test_locandine_video_due_file_distinti_e_loghi_in_fondo(self):
         import podcast
         f = podcast.locandine_video(date(2026, 11, 9))
-        self.assertEqual(len(f), 2)
-        self.assertEqual(len(set(f)), 2)
+        self.assertEqual(len(f), 3)
+        self.assertEqual(len(set(f)), 3)
+        self.assertEqual(f[-1], podcast.loghi_video())
+        self.assertTrue(f[-1].endswith(os.path.join("loghi", "chiusura.png")))
 
-    def test_locandine_video_vuote_a_corsi_finiti(self):
+    def test_a_corsi_finiti_restano_i_loghi(self):
         import podcast
-        self.assertEqual(podcast.locandine_video(date(2027, 12, 1)), [])
+        self.assertEqual(podcast.locandine_video(date(2027, 12, 1)), [podcast.loghi_video()])
+
+    def test_senza_file_dei_loghi_nessuna_immagine_in_piu(self):
+        import podcast
+        vecchio = cfg.PODCAST_LOGHI
+        try:
+            cfg.PODCAST_LOGHI = "loghi/non-esiste.png"
+            self.assertEqual(len(podcast.locandine_video(date(2026, 11, 9))), 2)
+            self.assertEqual(podcast.locandine_video(date(2027, 12, 1)), [])
+        finally:
+            cfg.PODCAST_LOGHI = vecchio
 
     def test_durata_locandina_in_config(self):
         self.assertEqual(cfg.PODCAST_LOCANDINA_SEC, 5)
