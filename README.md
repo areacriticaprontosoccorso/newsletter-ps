@@ -215,6 +215,8 @@ cade fra 45 e 90 s, la più vicina a 75 s (senza sezioni, 75 s); video 4:5 nel r
 stesso fotogramma sfocato attorno, dissolvenza finale di immagine e voce. Il tempo delle sezioni è in
 `podcast/esito.json` (`sezioni`). `IG_REEL_PODCAST = False` lo spegne. Didascalia: `IG_PODCAST_INTESTAZIONE`.
 
+**Reel anche su Facebook.** Gli stessi due video (Reel delle schede ed estratto del podcast) escono anche sulla Pagina Facebook, subito dopo quelli di Instagram, con `FB_PAGE_ID` e `FB_PAGE_TOKEN` (il token dei post: deve avere `pages_manage_posts`). Nella descrizione la frase «dal link in bio» viene tolta (EM non ha una pagina di iscrizione; se l'avesse, va in `FB_REEL_INVITO`). Il Reel del podcast è dichiarato «generato con IA» (voce sintetica). Facebook accetta Reel da 3 a 90 s: l'estratto del podcast è tagliato a 87 s al massimo, più 3 s di loghi. `FB_REEL = False` in `config.py` li spegne. Escono insieme a Instagram, quindi non con `solo_facebook`; in `dry_run` salvano la descrizione in `instagram/descrizione-reel-facebook-*.txt`. Il codice è `pubblica_reel_facebook` in `instagram.py`. Non provato con l'API reale: se un Reel non esce, nel log cerca «Facebook: Reel non pubblicato».
+
 Serve un account Instagram **Business o Creator collegato alla Pagina Facebook**, e tre secret del repo:
 `FB_PAGE_ID`, `FB_PAGE_TOKEN` (il token deve avere i permessi `instagram_basic`,
 `instagram_content_publish` e `pages_read_engagement`) e `IG_USER_ID` (l'ID dell'account Instagram).

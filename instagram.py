@@ -53,7 +53,8 @@ REEL_LOCANDINA_S = 4.0
 REEL_LOGHI_S = 3.0                     # diapositiva finale con i loghi
 REEL_SCHEDA_MIN_S, REEL_SCHEDA_MAX_S = 5.0, 8.0
 REEL_PAROLE_AL_SEC = 4.0               # lettura veloce: 3 s fissi + parole / 4
-ESTRATTO_MIN_S, ESTRATTO_STANDARD_S, ESTRATTO_MAX_S = 45.0, 75.0, 90.0
+ESTRATTO_MIN_S, ESTRATTO_STANDARD_S, ESTRATTO_MAX_S = 45.0, 75.0, 87.0   # + 3 s di loghi = 90 s al massimo
+FB_REEL_MIN_S, FB_REEL_MAX_S = 3.0, 90.0   # durata ammessa per i Reel di Facebook
 
 
 # ─────────────────────────────── diapositive ───────────────────────────────
@@ -381,13 +382,13 @@ def crea_reel(diapositive, durate, dest, sfondo="#1a1a1a", musica=None):
         graf += (f";[{n}:a]volume=0.35,atrim=0:{totale:.3f},"
                  f"afade=t=out:st={max(0.0, totale - 1.5):.2f}:d=1.5[a]")
     else:
-        ingressi += ["-f", "lavfi", "-t", f"{totale:.3f}", "-i", "anullsrc=r=44100:cl=stereo"]
+        ingressi += ["-f", "lavfi", "-t", f"{totale:.3f}", "-i", "anullsrc=r=48000:cl=stereo"]
         graf += f";[{n}:a]anull[a]"
     try:
         subprocess.run(["ffmpeg", "-y", "-loglevel", "error", *ingressi, "-filter_complex", graf,
                         "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-preset", "veryfast",
                         "-tune", "stillimage", "-crf", "24", "-c:a", "aac", "-b:a", "128k",
-                        "-ar", "44100", "-t", f"{totale:.3f}", "-movflags", "+faststart", dest],
+                        "-ar", "48000", "-t", f"{totale:.3f}", "-movflags", "+faststart", dest],
                        check=True, capture_output=True)
     except subprocess.CalledProcessError as e:
         raise RuntimeError((e.stderr or b"").decode("utf-8", "replace")[-300:] or "ffmpeg") from None
@@ -421,15 +422,15 @@ def crea_estratto_podcast(mp4, dest, sezioni=None, chiusura=None, sfondo="#1a1a1
             f"[b]scale={REEL_L}:{REEL_A}:force_original_aspect_ratio=increase,crop={REEL_L}:{REEL_A},"
             f"boxblur=40:5[bg];[a]scale={LARGHEZZA}:{ALTEZZA}[fg];"
             f"[bg][fg]overlay=0:{REEL_Y},fade=t=out:st={st:.2f}:d=0.8,fps=30,setsar=1,format=yuv420p[v0];"
-            f"[0:a]afade=t=out:st={st:.2f}:d=0.8,aformat=sample_rates=44100:channel_layouts=stereo[a0]")
+            f"[0:a]afade=t=out:st={st:.2f}:d=0.8,aformat=sample_rates=48000:channel_layouts=stereo[a0]")
     ingressi = ["-i", mp4]
     if chiusura and os.path.exists(chiusura):
         ingressi += ["-loop", "1", "-framerate", "30", "-t", f"{REEL_LOGHI_S:.3f}", "-i",
                      os.path.abspath(chiusura), "-f", "lavfi", "-t", f"{REEL_LOGHI_S:.3f}", "-i",
-                     "anullsrc=r=44100:cl=stereo"]
+                     "anullsrc=r=48000:cl=stereo"]
         graf += (f";[1:v]scale={LARGHEZZA}:{ALTEZZA},setsar=1,"
                  f"pad={REEL_L}:{REEL_A}:0:{REEL_Y}:color={_colore_ffmpeg(sfondo)},fps=30,format=yuv420p[v1];"
-                 "[2:a]aformat=sample_rates=44100:channel_layouts=stereo[a1];"
+                 "[2:a]aformat=sample_rates=48000:channel_layouts=stereo[a1];"
                  "[v0][a0][v1][a1]concat=n=2:v=1:a=1[v][au]")
     else:
         graf += ";[v0]null[v];[a0]anull[au]"
@@ -600,12 +601,14 @@ def pubblica_carosello(file_diapositive, didascalia, ig_user_id, page_id, token,
         return None
 
 
-def _carica_video(contenitore, percorso, token, versione):
-    """Carico del file nel contenitore di un Reel (upload 'resumable': niente indirizzo pubblico)."""
+def _carica_video(contenitore, percorso, token, versione, url=None):
+    """Carico del file nel contenitore di un Reel (upload 'resumable': niente indirizzo pubblico).
+    `url`: l'indirizzo di upload; per Instagram e' quello del contenitore, per Facebook quello
+    restituito all'avvio della sessione."""
     with open(percorso, "rb") as f:
         dati = f.read()
     req = urllib.request.Request(
-        f"https://rupload.facebook.com/ig-api-upload/{versione}/{contenitore}", data=dati,
+        url or f"https://rupload.facebook.com/ig-api-upload/{versione}/{contenitore}", data=dati,
         headers={"Authorization": f"OAuth {token}", "offset": "0", "file_size": str(len(dati)),
                  "Content-Type": "application/octet-stream"}, method="POST")
     try:
@@ -635,6 +638,95 @@ def pubblica_reel(video, didascalia, ig_user_id, token, versione="v21.0"):
         return None
 
 
+# ───────────────────────────── Reel su Facebook ─────────────────────────────
+
+def descrizione_reel_facebook(didascalia, cfg):
+    """La didascalia di Instagram adattata a Facebook: dove dice «dal link in bio» (qui non c'e')
+    mette l'invito FB_REEL_INVITO con l'indirizzo vero, oppure toglie la frase."""
+    invito = (getattr(cfg, "FB_REEL_INVITO", "") or "").strip()
+    testo = re.sub(r"[^.\n]*link in bio\.?", (" " + invito) if invito else "", didascalia)
+    testo = re.sub(r"[ \t]+\n", "\n", testo)
+    return taglia_didascalia(re.sub(r"[ \t]{2,}", " ", testo).strip())
+
+
+def _durata_video(percorso):
+    try:
+        out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of",
+                              "default=nw=1:nk=1", percorso], check=True, capture_output=True, text=True)
+        return float(out.stdout.strip())
+    except Exception:
+        return None
+
+
+def _attendi_video_facebook(video_id, token, versione, attesa_max=ATTESA_REEL_S):
+    """Aspetta che Facebook finisca di elaborare il Reel. Solleva se lo rifiuta; se allo scadere
+    non e' ancora pronto lo dice nel log e prosegue (il Reel di solito esce comunque)."""
+    scadenza = time.time() + attesa_max
+    stato = ""
+    while time.time() < scadenza:
+        s = _chiama("GET", f"https://graph.facebook.com/{versione}/{video_id}",
+                    {"fields": "status", "access_token": token}).get("status", {})
+        stato = s.get("video_status", "")
+        if stato == "ready":
+            return stato
+        if stato in ("error", "upload_failed", "expired"):
+            errori = [str(s.get(f, {}).get("error", "")) for f in ("processing_phase", "publishing_phase")]
+            raise RuntimeError(f"Facebook ha rifiutato il video (stato {stato}) {' '.join(e for e in errori if e)[:200]}")
+        time.sleep(5)
+    log.warning(f"Facebook: Reel ancora in elaborazione dopo {attesa_max} s (stato '{stato}'): controllare sulla Pagina")
+    return stato
+
+
+def pubblica_reel_facebook(video, descrizione, page_id, token, versione="v21.0", ai=False):
+    """Pubblica un Reel sulla Pagina Facebook (3 passi: avvio, caricamento, pubblicazione).
+    `ai`: dichiara che il contenuto e' generato con l'IA (la voce del podcast). Restituisce
+    l'id del video, o None se qualcosa non va (errore nel log). Mai eccezioni."""
+    try:
+        durata = _durata_video(video)
+        if durata is not None and not FB_REEL_MIN_S <= durata <= FB_REEL_MAX_S:
+            log.warning(f"Facebook: Reel di {durata:.0f} s fuori dai limiti ({FB_REEL_MIN_S:.0f}-"
+                        f"{FB_REEL_MAX_S:.0f} s) - non pubblicato")
+            return None
+        base = f"https://graph.facebook.com/{versione}/{page_id}/video_reels"
+        avvio = _chiama("POST", base, {"upload_phase": "start", "access_token": token})
+        video_id = avvio["video_id"]
+        _carica_video(video_id, video, token, versione,
+                      url=avvio.get("upload_url") or f"https://rupload.facebook.com/video-upload/{video_id}")
+        campi = {"upload_phase": "finish", "video_id": video_id, "video_state": "PUBLISHED",
+                 "description": descrizione, "access_token": token}
+        if ai:
+            campi["is_ai_generated"] = "true"
+        _chiama("POST", base, campi)
+        _attendi_video_facebook(video_id, token, versione)
+        log.info(f"Facebook: Reel pubblicato -> {video_id}")
+        return video_id
+    except Exception as e:
+        log.error(f"Facebook: Reel non pubblicato ({e})")
+        return None
+
+
+def _reel_facebook(video, didascalia, cfg, dry_run, nome, ai=False):
+    """Lo stesso video del Reel di Instagram, anche su Facebook (FB_REEL = True). Non nelle prove
+    «solo Instagram». Mai eccezioni. Id, 'dry-run' o None."""
+    try:
+        if not getattr(cfg, "FB_REEL", False) or getattr(cfg, "SOLO_INSTAGRAM", False):
+            return None
+        testo = descrizione_reel_facebook(didascalia, cfg)
+        if dry_run:
+            with open(os.path.join(cfg.IG_DIR, f"descrizione-reel-facebook-{nome}.txt"), "w", encoding="utf-8") as f:
+                f.write(testo + "\n")
+            log.info(f"Facebook (prova a vuoto): Reel {nome}, stesso video di Instagram; descrizione in {cfg.IG_DIR}/")
+            return "dry-run"
+        page, token = getattr(cfg, "FB_PAGE_ID", ""), getattr(cfg, "FB_PAGE_TOKEN", "")
+        if not page or not token:
+            log.warning("Facebook: FB_PAGE_ID o FB_PAGE_TOKEN mancanti - Reel non pubblicato")
+            return None
+        return pubblica_reel_facebook(video, testo, page, token, getattr(cfg, "FB_API_VERSION", "v21.0"), ai)
+    except Exception as e:
+        log.error(f"Facebook: Reel non pubblicato ({e})")
+        return None
+
+
 # ─────────────────────────── punto d'ingresso unico ───────────────────────────
 
 def token_instagram(cfg):
@@ -660,10 +752,13 @@ def _reel_schede(file, tipi, parole, didascalia, cfg, dry_run):
         mb = os.path.getsize(dest) / 1e6
         if dry_run:
             log.info(f"Instagram (prova a vuoto): Reel delle schede {mb:.1f} MB in {dest}")
+            _reel_facebook(dest, didascalia, cfg, dry_run, "schede")
             return "dry-run"
         log.info(f"Instagram: Reel delle schede pronto ({mb:.1f} MB)")
-        return pubblica_reel(dest, didascalia, cfg.IG_USER_ID, token_instagram(cfg),
-                             getattr(cfg, "FB_API_VERSION", "v21.0"))
+        ig = pubblica_reel(dest, didascalia, cfg.IG_USER_ID, token_instagram(cfg),
+                           getattr(cfg, "FB_API_VERSION", "v21.0"))
+        _reel_facebook(dest, didascalia, cfg, dry_run, "schede")
+        return ig
     except Exception as e:
         log.error(f"Instagram: Reel delle schede non creato ({e})")
         return None
@@ -729,10 +824,13 @@ def pubblica_reel_podcast(mp4, sezioni, didascalia, cfg, dry_run=False):
             with open(os.path.join(cfg.IG_DIR, "didascalia-podcast.txt"), "w", encoding="utf-8") as f:
                 f.write(taglia_didascalia(didascalia) + "\n")
             log.info(f"Instagram (prova a vuoto): Reel del podcast {durata:.0f} s, {mb:.1f} MB in {dest}")
+            _reel_facebook(dest, didascalia, cfg, dry_run, "podcast", ai=True)
             return "dry-run"
         log.info(f"Instagram: Reel del podcast pronto ({durata:.0f} s, {mb:.1f} MB)")
-        return pubblica_reel(dest, didascalia, cfg.IG_USER_ID, token_instagram(cfg),
-                             getattr(cfg, "FB_API_VERSION", "v21.0"))
+        ig = pubblica_reel(dest, didascalia, cfg.IG_USER_ID, token_instagram(cfg),
+                           getattr(cfg, "FB_API_VERSION", "v21.0"))
+        _reel_facebook(dest, didascalia, cfg, dry_run, "podcast", ai=True)    # la voce e' sintetica
+        return ig
     except Exception as e:
         log.error(f"Instagram: Reel del podcast non creato ({e})")
         return None
