@@ -1,7 +1,7 @@
 """Pubblicazione su Instagram: un carosello per ogni uscita (modulo condiviso EM/POCUS/NIV).
 
 Il carosello e' fatto di diapositive 4:5 (1080x1350, JPEG: l'API di Instagram non accetta
-PNG): copertina del podcast (solo EM), schede degli articoli, locandine dei corsi.
+PNG): copertina del podcast (EM) o schermata della pagina di iscrizione (POCUS e NIV), schede degli articoli, locandine dei corsi.
 Le schede hanno altezze diverse e le locandine sono verticali (1:1,41): ognuna viene
 messa per intero, senza ritagli, su un fondo 4:5 (bande ai lati).
 
@@ -48,7 +48,7 @@ ATTESA_REEL_S = 300                    # un video si elabora piu' lentamente di 
 
 REEL_L, REEL_A = 1080, 1920            # 9:16
 REEL_Y = 240                           # sopra il riquadro 4:5: la zona che l'app copre col profilo
-REEL_COPERTINA_S = 3.0                 # durata delle diapositive nel Reel, in secondi
+REEL_COPERTINA_S = 4.0                 # durata delle diapositive nel Reel, in secondi
 REEL_LOCANDINA_S = 4.0
 REEL_LOGHI_S = 3.0                     # diapositiva finale con i loghi
 REEL_SCHEDA_MIN_S, REEL_SCHEDA_MAX_S = 5.0, 8.0
@@ -247,6 +247,88 @@ def genera_schede(articoli, wl, cfg, cartella):
     except Exception as e:
         log.error(f"Instagram: generazione schede interrotta ({e})")
     return percorsi, parole
+
+
+# ───────────────────────── prima diapositiva: pagina di iscrizione ─────────────────────────
+
+def html_copertina_iscrizione(schermata_b64, cfg, larghezza=LARGHEZZA, altezza=ALTEZZA):
+    """Prima diapositiva 4:5: titolo di presentazione, schermata della pagina di iscrizione in una
+    finestra di browser (con l'indirizzo vero) e invito a iscriversi."""
+    scuro = getattr(cfg, "COLOR_DARK", "#1a1a1a")
+    colore = getattr(cfg, "COLOR_ACCENT", "#0a6e8a")
+    titolo = getattr(cfg, "IG_COPERTINA_TITOLO", "") or getattr(cfg, "NOME_NEWSLETTER", "")
+    sotto = getattr(cfg, "IG_COPERTINA_SOTTOTITOLO", "")
+    invito = getattr(cfg, "IG_COPERTINA_INVITO", "Iscriviti alla newsletter")
+    servizio = getattr(cfg, "NOME_SERVIZIO", "")
+    indirizzo = re.sub(r"^https?://", "", getattr(cfg, "NEWSLETTER_PAGE_URL", "")).rstrip("/")
+    return f"""<!DOCTYPE html>
+<html lang="it"><head><meta charset="UTF-8"></head>
+<body style="margin:0;width:{larghezza}px;height:{altezza}px;background:{_e(scuro)};overflow:hidden;position:relative;font-family:Georgia,'Times New Roman',serif;">
+  <div style="background:{_e(colore)};height:10px;"></div>
+  <div style="text-align:center;padding:34px 60px 0;">
+    <div style="font:20px monospace;color:#9fb0b5;letter-spacing:3px;text-transform:uppercase;">{_e(servizio)}</div>
+    <div id="t" style="font-weight:700;font-size:82px;line-height:1.05;color:#fff;margin-top:22px;">{_e(titolo)}</div>
+    <div id="s" style="font-size:34px;line-height:1.25;color:#d8e0e2;margin-top:16px;font-style:italic;">{_e(sotto)}</div>
+  </div>
+  <div style="position:absolute;left:50%;top:336px;margin-left:-280px;width:560px;border-radius:16px;overflow:hidden;box-shadow:0 18px 50px rgba(0,0,0,.55);background:#111;">
+    <div style="height:44px;background:#e9ebec;display:flex;align-items:center;padding:0 16px;box-sizing:border-box;">
+      <span style="width:12px;height:12px;border-radius:50%;background:#ff5f57;margin-right:8px;"></span>
+      <span style="width:12px;height:12px;border-radius:50%;background:#febc2e;margin-right:8px;"></span>
+      <span style="width:12px;height:12px;border-radius:50%;background:#28c840;margin-right:16px;"></span>
+      <span style="flex:1;background:#fff;border-radius:14px;height:26px;line-height:26px;font:13px monospace;color:#555;padding:0 14px;white-space:nowrap;overflow:hidden;">{_e(indirizzo)}</span>
+    </div>
+    <img src="data:image/png;base64,{schermata_b64}" style="display:block;width:560px;height:auto;">
+  </div>
+  <div style="position:absolute;left:0;right:0;top:1184px;text-align:center;">
+    <div style="display:inline-block;background:#e02020;color:#fff;font:700 40px Georgia,serif;padding:18px 48px;border-radius:50px;">{_e(invito)} &rarr;</div>
+    <div style="font:22px monospace;color:#9fb0b5;margin-top:14px;letter-spacing:1px;">link in bio</div>
+  </div>
+<script>
+(function () {{
+  var t = document.getElementById('t'), s = document.getElementById('s');
+  var ft = 82, fs = 34;
+  function applica() {{ t.style.fontSize = ft + 'px'; s.style.fontSize = fs + 'px'; }}
+  while ((t.scrollHeight > ft * 2.3 || s.scrollHeight > fs * 2.6) && ft > 44) {{ ft -= 2; fs = Math.max(26, fs - 0.5); applica(); }}
+}})();
+</script>
+</body></html>"""
+
+
+def genera_copertina_iscrizione(cfg, dest, pagina="index.html"):
+    """Schermata della pagina di iscrizione del repo (`pagina`, gia' nel checkout: e' la stessa che
+    GitHub Pages pubblica) montata in una diapositiva 1080x1350 PNG in `dest`. Mai eccezioni:
+    senza Playwright o senza la pagina restituisce None (il carosello esce senza prima immagine)."""
+    try:
+        if not getattr(cfg, "IG_COPERTINA_ISCRIZIONE", True):
+            return None
+        if not os.path.exists(pagina):
+            log.warning(f"Instagram: pagina di iscrizione '{pagina}' non trovata - niente prima immagine")
+            return None
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            log.warning("Instagram: Playwright non installato - niente prima immagine")
+            return None
+        os.makedirs(os.path.dirname(os.path.abspath(dest)), exist_ok=True)
+        with sync_playwright() as p:
+            browser = p.chromium.launch(args=["--no-sandbox"])
+            try:
+                vista = browser.new_page(viewport={"width": 600, "height": 820}, device_scale_factor=2)
+                vista.goto("file://" + os.path.abspath(pagina), wait_until="load", timeout=20000)
+                vista.wait_for_timeout(700)          # il tempo ai caratteri web di caricarsi
+                schermata = vista.screenshot(type="png")
+                diap = browser.new_page(viewport={"width": LARGHEZZA, "height": ALTEZZA},
+                                        device_scale_factor=1)
+                diap.set_content(html_copertina_iscrizione(
+                    base64.b64encode(schermata).decode("ascii"), cfg), wait_until="load")
+                diap.screenshot(path=dest, type="png")
+            finally:
+                browser.close()
+        log.info(f"Instagram: prima immagine con la pagina di iscrizione ({os.path.getsize(dest) // 1024} KB)")
+        return dest
+    except Exception as e:
+        log.warning(f"Instagram: prima immagine non generata ({e})")
+        return None
 
 
 # ──────────────────────────────────── Reel ────────────────────────────────────
