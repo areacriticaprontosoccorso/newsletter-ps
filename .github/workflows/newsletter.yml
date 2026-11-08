@@ -113,6 +113,11 @@ jobs:
       # Newsletter completa: selezione, sintesi, schede, podcast (fino a 45 minuti,
       # poi si rinuncia), mail con l'MP3 allegato, post Facebook. Parte all'ora in
       # cui cron-job.org avvia il workflow; la mail esce a podcast pronto.
+      # Segna l'ora d'inizio (UTC): l'avviso per email legge dal log solo le righe di
+      # questo run, non quelle dei test che scrivono nello stesso file.
+      - name: Segna l'inizio della newsletter
+        run: echo "NEWSLETTER_INIZIO=$(date -u '+%Y-%m-%d %H:%M:%S')" >> "$GITHUB_ENV"
+
       - name: Esegui newsletter
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -161,3 +166,15 @@ jobs:
             podcast/
           if-no-files-found: warn
           retention-days: 14
+
+      # Email a AVVISI_EMAIL solo se un invio e' fallito o e' uscito incompleto (errori nel log
+      # del run). Se va tutto bene non scrive. Mai bloccante. Non parte nelle prove.
+      - name: Avvisa per email se qualcosa e' andato storto
+        if: always() && !inputs.dry_run && !inputs.solo_facebook
+        continue-on-error: true
+        env:
+          JOB_STATUS: ${{ job.status }}
+          AVVISI_EMAIL: ${{ secrets.AVVISI_EMAIL }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_TOKEN: ${{ secrets.GMAIL_TOKEN }}
+        run: python avviso.py
