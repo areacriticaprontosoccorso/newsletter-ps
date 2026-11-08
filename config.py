@@ -81,7 +81,7 @@ FB_SCHEDE      = False
 # è poi Facebook. Vincolo API: l'orario deve essere almeno 10 minuti nel futuro.
 FB_UN_POST_AL_GIORNO = True
 FB_FUSO              = "Europe/Rome"
-FB_ORA               = 16   # ora di pubblicazione (0-23), fuso di Roma
+FB_ORA               = 11   # ora di pubblicazione (0-23), fuso di Roma
 FB_MINUTO            = 0
 FB_GIORNI_FERIALI    = {0, 1, 2, 3, 4}   # lunedì=0 ... venerdì=4
 # Post sui corsi (locandine POCUS e NIV, a settimane alterne): a un orario proprio,
