@@ -971,21 +971,32 @@ def genera_copertina(articoli, wl, dest):
         return None
 
 
+def loghi_video():
+    """File con i tre loghi (diapositiva finale del video), o None se non esiste."""
+    f = getattr(cfg, "PODCAST_LOGHI", "")
+    if f and not os.path.isabs(f):
+        f = os.path.join(os.path.dirname(os.path.abspath(__file__)), f)
+    return f if f and os.path.exists(f) else None
+
+
 def locandine_video(oggi=None):
-    """File delle locandine dei corsi da mettere in coda al video: tutti i corsi in
-    corso di pubblicazione (POCUS e NIV), a prescindere dal turno settimanale della mail.
-    Mai eccezioni: in caso di problemi restituisce []."""
+    """File da mettere in coda al video: le locandine dei corsi in corso di pubblicazione
+    (POCUS e NIV, a prescindere dal turno settimanale della mail) e, sempre per ultima, la
+    diapositiva con i tre loghi. Mai eccezioni: in caso di problemi restituisce quello
+    che e' riuscito a caricare."""
+    files = []
     try:
-        files = []
         for c in avvisi.carica_corsi("em", oggi=oggi, base_url=cfg.URL_RAW_REPO,
                                      ignora_frequenza=True, massimo=8):
             f = c.get("immagine_file")
             if f and os.path.exists(f) and f not in files:
                 files.append(f)
-        return files
     except Exception as e:
         log.warning(f"Locandine per il video non caricate: {e}")
-        return []
+    loghi = loghi_video()
+    if loghi:
+        files.append(loghi)
+    return files
 
 
 def genera_video(mp3, sezioni, immagini, copertina, dest, sottotitoli=None, locandine=None):
@@ -1214,7 +1225,7 @@ def genera(archivio=None, copione_file=None):
                                      os.path.join(cfg.PODCAST_DIR, "sottotitoli.ass"))
         locandine = locandine_video()
         if locandine:
-            log.info(f"Video: {len(locandine)} locandine in coda "
+            log.info(f"Video: {len(locandine)} immagini in coda (locandine e loghi) "
                      f"({getattr(cfg, 'PODCAST_LOCANDINA_SEC', 5)} s ciascuna)")
         _, con_sottotitoli = genera_video(mp3, sezioni, immagini, copertina, mp4,
                                           sottotitoli=ass, locandine=locandine)

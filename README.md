@@ -165,7 +165,7 @@ più il campo `turno`); le locandine stanno in `locandine/`. Dopo l'ultimo giorn
 l'avviso sparisce da solo. Un errore nel file non blocca l'invio: `python corsi.py` lo controlla.
 
 Il **video del podcast** chiude con le locandine di tutti i corsi in corso (POCUS e NIV),
-`PODCAST_LOCANDINA_SEC` = 5 secondi ciascuna, in silenzio dopo la sigla. L'MP3 resta com'è.
+`PODCAST_LOCANDINA_SEC` = 5 secondi ciascuna, in silenzio dopo la sigla. L'MP3 resta com'è. Dopo le locandine, sempre per ultima, la diapositiva con i tre loghi (`PODCAST_LOGHI` = `loghi/chiusura.png`), per lo stesso tempo; compare anche senza locandine.
 
 ## Instagram
 
