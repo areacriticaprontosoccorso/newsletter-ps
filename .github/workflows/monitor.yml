@@ -1,0 +1,66 @@
+# Controllo e statistiche delle tre newsletter (EM, POCUS, NIV). Gira da qui perche' qui ci sono
+# tutti i secret (Gmail, Facebook, Instagram). Vedi monitor.py e la sezione «Monitor» del README.
+#
+#  - lun, mer, ven 12:30 (ora di Roma d'inverno): controlla che il run del giorno sia partito,
+#    riuscito e non bloccato; se no, email a AVVISI_EMAIL. Se e' tutto regolare non scrive.
+#  - domenica 18:00: email con il riepilogo della settimana (post Instagram e Facebook, iscritti).
+#
+# Gli orari GitHub sono in UTC (un'ora in piu' d'estate) e possono slittare di qualche minuto.
+name: Monitor newsletter
+
+on:
+  schedule:
+    - cron: '30 11 * * 1,3,5'
+    - cron: '0 17 * * 0'
+  workflow_dispatch:
+    inputs:
+      comando:
+        description: "Cosa eseguire ora: controllo dell'avvio di oggi oppure il riepilogo della settimana"
+        type: choice
+        options:
+          - statistiche
+          - controlla
+        default: statistiche
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Stesse versioni della newsletter EM: l'email parte dall'API di Gmail (GMAIL_TOKEN).
+      - name: Installa dipendenze
+        run: |
+          pip install \
+            google-auth-oauthlib==1.4.0 \
+            google-auth-httplib2==0.4.0 \
+            google-api-python-client==2.198.0
+
+      - name: Esegui
+        env:
+          COMANDO_MANUALE: ${{ inputs.comando }}
+          PROGRAMMA: ${{ github.event.schedule }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_TOKEN: ${{ secrets.GMAIL_TOKEN }}
+          AVVISI_EMAIL: ${{ secrets.AVVISI_EMAIL }}
+          FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
+          FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
+          IG_USER_ID: ${{ secrets.IG_USER_ID }}
+          IG_PAGE_TOKEN: ${{ secrets.IG_PAGE_TOKEN }}
+          DESTINATARI: ${{ secrets.DESTINATARI }}
+        run: |
+          case "$PROGRAMMA" in
+            "0 17 * * 0")     python monitor.py statistiche ;;
+            "30 11 * * 1,3,5") python monitor.py controlla ;;
+            *)                python monitor.py "${COMANDO_MANUALE:-statistiche}" ;;
+          esac
