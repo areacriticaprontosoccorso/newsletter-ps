@@ -727,6 +727,16 @@ def _reel_facebook(video, didascalia, cfg, dry_run, nome, ai=False):
         return None
 
 
+def _reel_x(video, didascalia, cfg, dry_run):
+    """Il Reel delle schede anche su X (X_REEL = True, chiavi X_*): vedi x_social.py. Mai eccezioni."""
+    try:
+        import x_social
+        return x_social.pubblica_reel(video, didascalia, cfg, dry_run)
+    except Exception as e:
+        log.error(f"X: post non pubblicato ({e})")
+        return None
+
+
 # ─────────────────────────── punto d'ingresso unico ───────────────────────────
 
 def token_instagram(cfg):
@@ -753,11 +763,13 @@ def _reel_schede(file, tipi, parole, didascalia, cfg, dry_run):
         if dry_run:
             log.info(f"Instagram (prova a vuoto): Reel delle schede {mb:.1f} MB in {dest}")
             _reel_facebook(dest, didascalia, cfg, dry_run, "schede")
+            _reel_x(dest, didascalia, cfg, dry_run)
             return "dry-run"
         log.info(f"Instagram: Reel delle schede pronto ({mb:.1f} MB)")
         ig = pubblica_reel(dest, didascalia, cfg.IG_USER_ID, token_instagram(cfg),
                            getattr(cfg, "FB_API_VERSION", "v21.0"))
         _reel_facebook(dest, didascalia, cfg, dry_run, "schede")
+        _reel_x(dest, didascalia, cfg, dry_run)
         return ig
     except Exception as e:
         log.error(f"Instagram: Reel delle schede non creato ({e})")
