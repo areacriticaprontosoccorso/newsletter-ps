@@ -102,6 +102,12 @@ IG_CHIUSURA     = "Sintesi generate con supporto di intelligenza artificiale: ve
 # estratto del podcast di 60-90 s (IG_REEL_PODCAST=False lo spegne). Senza musica; se esiste il
 # file IG_MUSICA (senza diritti d'autore: va controllata la licenza) viene messo sotto le schede.
 IG_REEL_SCHEDE  = True
+# Gli stessi Reel (schede ed estratto del podcast) anche sulla Pagina Facebook (FB_PAGE_ID / FB_PAGE_TOKEN);
+# FB_REEL = False li spegne. EM non ha una pagina di iscrizione: la frase «dal link in bio» su Facebook
+# viene tolta (se ne avesse una, metterla in FB_REEL_INVITO). Il Reel del podcast e' dichiarato «generato
+# con IA» (voce sintetica).
+FB_REEL = True
+FB_REEL_INVITO = ""
 IG_REEL_PODCAST = True
 IG_MUSICA       = "musica/sottofondo.mp3"
 # Diapositiva con i tre loghi: sempre l'ultima del carosello e dei Reel (se il file esiste).
