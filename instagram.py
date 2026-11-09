@@ -22,6 +22,7 @@ Principi:
   - in prova a vuoto (dry run) non chiama nessuna API: salva le diapositive e la didascalia.
 """
 import base64
+import html
 import json
 import logging
 import mimetypes
@@ -775,6 +776,57 @@ def configurato(cfg):
                 and getattr(cfg, "FB_PAGE_ID", "") and token_instagram(cfg))
 
 
+def html_locandina_invito(locandina_b64, mime, invito, sotto, sfondo, accento):
+    """Diapositiva 4:5 per il Reel: l'invito in testa (con una riga sotto), la locandina intera sotto."""
+    return (f'<html><body style="margin:0;width:{LARGHEZZA}px;height:{ALTEZZA}px;background:{sfondo};'
+            'overflow:hidden;display:flex;flex-direction:column;align-items:center">'
+            f'<div style="background:{accento};height:12px;width:100%;flex:none"></div>'
+            '<div style="height:176px;flex:none;display:flex;flex-direction:column;justify-content:center;'
+            'align-items:center;gap:8px;text-align:center">'
+            '<div style="font-family:Georgia,serif;font-size:37px;font-weight:700;color:#fff;'
+            f'line-height:1.15;padding:0 40px">{html.escape(invito)}</div>'
+            + (f'<div style="font-family:monospace;font-size:24px;color:#d8d8d8;letter-spacing:1px">'
+               f'{html.escape(sotto)}</div>' if sotto else "")
+            + '</div>'
+            f'<img src="data:{mime};base64,{locandina_b64}" '
+            'style="height:1090px;flex:none;border-radius:4px"></body></html>')
+
+
+def diapositive_reel(file, voci, cfg, cartella):
+    """Le diapositive del Reel: quelle del carosello, ma con la scritta d'invito in testa alle
+    locandine se `REEL_INVITO_LOCANDINA` e' impostato. Una locandina che non si compone resta
+    com'e'. Il carosello non cambia. `file` e `voci` hanno lo stesso ordine e la stessa lunghezza."""
+    invito = (getattr(cfg, "REEL_INVITO_LOCANDINA", "") or "").strip()
+    if not invito or len(file) != len(voci) or not any(t == "locandina" for _, _, t in voci):
+        return list(file)
+    sotto = getattr(cfg, "REEL_INVITO_SOTTO", "Date, sede e iscrizioni nella newsletter")
+    risultato = list(file)
+    try:
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            browser = p.chromium.launch(args=["--no-sandbox"])
+            pagina = browser.new_page(viewport={"width": LARGHEZZA, "height": ALTEZZA}, device_scale_factor=1)
+            for k, (src, _, tipo) in enumerate(voci):
+                if tipo != "locandina" or not src or not os.path.exists(src):
+                    continue
+                try:
+                    mime = mimetypes.guess_type(src)[0] or "image/png"
+                    with open(src, "rb") as f:
+                        b64 = base64.b64encode(f.read()).decode("ascii")
+                    pagina.set_content(html_locandina_invito(
+                        b64, mime, invito, sotto, getattr(cfg, "COLOR_DARK", "#1a1a1a"),
+                        getattr(cfg, "COLOR_ACCENT", "#c41e3a")), wait_until="load")
+                    dest = os.path.join(cartella, f"reel-locandina-{k + 1:02d}.jpg")
+                    pagina.screenshot(path=dest, type="jpeg", quality=92)
+                    risultato[k] = dest
+                except Exception as e:
+                    log.warning(f"Instagram: invito sulla locandina {os.path.basename(src)} non aggiunto ({e})")
+            browser.close()
+    except Exception as e:
+        log.warning(f"Instagram: inviti sulle locandine del Reel non aggiunti ({e})")
+    return risultato
+
+
 def _reel_schede(file, tipi, parole, didascalia, cfg, dry_run):
     """Reel con le stesse diapositive del carosello. Mai eccezioni. Restituisce id, 'dry-run' o None."""
     try:
@@ -832,9 +884,12 @@ def pubblica(voci, didascalia, cfg, dry_run=False, parole=None):
         # Se qualche diapositiva e' stata saltata nella conversione, i tipi non coincidono:
         # in quel caso il Reel usa durate di scheda per tutte (meglio di nessun Reel).
         tipi = [t for _, _, t in voci]
+        file_reel = file
         if len(tipi) != len(file):
             tipi = ["scheda"] * len(file)
-        _reel_schede(file, tipi, parole, didascalia, cfg, dry_run)
+        else:
+            file_reel = diapositive_reel(file, voci, cfg, cfg.IG_DIR)
+        _reel_schede(file_reel, tipi, parole, didascalia, cfg, dry_run)
         return post
     except Exception as e:
         log.error(f"Instagram: errore inatteso ({e})")
