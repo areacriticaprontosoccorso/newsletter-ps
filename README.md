@@ -198,6 +198,8 @@ lunghezza del titolo. Il codice è `instagram.py` (`dati_scheda`, `html_scheda`,
 
 **Loghi in chiusura.** L'ultima diapositiva del carosello e l'ultima dei Reel (3 s; anche in coda all'estratto del podcast, in EM) è sempre `loghi/chiusura.png`, con i tre loghi (Medicina d'Emergenza-Urgenza, Pronto Soccorso Area Critica, Emergency Ultrasound School Turin). Per cambiarla basta sostituire il file (1080x1350); `IG_LOGHI` in `config.py` ne indica il percorso.
 
+**Invito sulle locandine dei Reel.** `REEL_INVITO_LOCANDINA` e `REEL_INVITO_SOTTO` in `config.py`; vuoto = nessuna scritta. Qui è spento (`REEL_INVITO_LOCANDINA = ""`): il podcast di EM ha già l'invito, detto a voce e scritto sulle locandine; scrivi la frase in `config.py` per averla anche nei Reel. Il codice è `diapositive_reel` in `instagram.py`.
+
 **Reel delle schede.** Subito dopo il carosello esce un Reel 9:16 con le stesse diapositive, una dopo
 l'altra: 3 s la copertina, da 5 a 8 s ogni scheda (secondo le parole da leggere), 4 s ogni locandina.
 Le diapositive stanno in un riquadro 4:5 sotto i 240 px di sopra, che l'app copre col profilo. Senza

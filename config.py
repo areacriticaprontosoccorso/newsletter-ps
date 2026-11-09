@@ -121,6 +121,10 @@ FB_REEL = True
 FB_REEL_INVITO = ""
 IG_REEL_PODCAST = True
 IG_MUSICA       = "musica/sottofondo.mp3"
+# Invito scritto in testa alle locandine dei corsi nei Reel (Instagram, Facebook, X); il carosello non cambia.
+# Vuoto = nessuna scritta. Sotto l'invito: REEL_INVITO_SOTTO.
+REEL_INVITO_LOCANDINA = ""
+REEL_INVITO_SOTTO     = "Date, sede e iscrizioni nella newsletter"
 # Diapositiva con i tre loghi: sempre l'ultima del carosello e dei Reel (se il file esiste).
 IG_LOGHI        = "loghi/chiusura.png"
 IG_PODCAST_INTESTAZIONE = "EM Weekly Digest — il podcast della settimana {settimana}/{anno}\nUn estratto: il podcast completo arriva con la newsletter."
