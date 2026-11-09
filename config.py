@@ -249,9 +249,9 @@ PODCAST_ATEMPO_MAX = 1.10
 # In PODCAST_INTRO, {Articoli} diventa il numero in lettere ("Cinque", "Quattro"...).
 # Dal 2/11 il podcast ha apertura, avvertenza e sigla e può durare fino a 2'20".
 PODCAST_PAROLE_MIN = 175
-# Locandine dei corsi (POCUS e NIV) in coda al video, in silenzio: secondi per ciascuna.
+# Loghi in coda al video, in silenzio: secondi. La voce di chiusura corre sulle locandine dei corsi (POCUS e NIV).
 PODCAST_LOCANDINA_SEC = 5
-# Diapositiva con i tre loghi: sempre l'ultima del video del podcast (stessa durata delle locandine).
+# Diapositiva con i tre loghi: sempre l'ultima del video del podcast (PODCAST_LOCANDINA_SEC secondi).
 PODCAST_LOGHI = "loghi/chiusura.png"
 PODCAST_PAROLE_MAX = 210
 # Frase d'apertura scritta da Claude ("Questa settimana: ..."), inserita prima di "Buon ascolto".

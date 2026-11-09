@@ -1,6 +1,9 @@
 """Avvisi dei corsi nella newsletter EM: alternanza POCUS/NIV e locandine del video."""
 import os
+import shutil
+import subprocess
 import sys
+import tempfile
 import unittest
 from datetime import date, timedelta
 
@@ -93,6 +96,61 @@ class TestPodcast(unittest.TestCase):
 
     def test_durata_locandina_in_config(self):
         self.assertEqual(cfg.PODCAST_LOCANDINA_SEC, 5)
+
+
+class TestCodaVideo(unittest.TestCase):
+    """La voce di chiusura corre sulle locandine e finisce ai loghi."""
+
+    def test_piano_voce_lunga_si_divide_fra_le_locandine(self):
+        import podcast
+        per, silenzio = podcast.piano_coda(12.0, 2, 5.0)
+        self.assertEqual(per, 6.0)
+        self.assertEqual(silenzio, 5.0)           # solo i loghi
+
+    def test_piano_voce_corta_allunga_l_audio(self):
+        import podcast
+        per, silenzio = podcast.piano_coda(6.0, 4, 5.0)       # 4 locandine, minimo 3,5 s l'una
+        self.assertEqual(per, 3.5)
+        self.assertAlmostEqual(silenzio, 4 * 3.5 - 6.0 + 5.0)
+
+    def test_piano_senza_locandine_solo_i_loghi(self):
+        import podcast
+        self.assertEqual(podcast.piano_coda(9.0, 0, 5.0), (0.0, 5.0))
+        self.assertEqual(podcast.piano_coda(9.0, 0, 0.0), (0.0, 0.0))
+
+    def test_scritta_sulla_locandina(self):
+        import podcast
+        html = podcast.html_locandina_corsi("AAAA")
+        self.assertIn("Corsi in programma", html)
+        self.assertIn("newsletter", html)
+
+    @unittest.skipUnless(shutil.which("ffmpeg"), "serve ffmpeg")
+    def test_video_voce_sulle_locandine_e_loghi_in_silenzio(self):
+        import podcast
+        with tempfile.TemporaryDirectory() as d:
+            vecchio = cfg.PODCAST_DIR
+            cfg.PODCAST_DIR = d
+            try:
+                mp3, cop = os.path.join(d, "a.mp3"), os.path.join(d, "c.png")
+                subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i",
+                                "sine=frequency=300:duration=20", mp3], check=True)
+                subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i",
+                                "color=c=0x333333:s=1080x1350", "-frames:v", "1", cop], check=True)
+                sezioni = [(0, 4), (4, 12), (12, 20)]                  # intro, 1 articolo, chiusura 8 s
+                loc = podcast.locandine_video(date(2026, 11, 9))       # 2 locandine + loghi
+                out = os.path.join(d, "v.mp4")
+                podcast.genera_video(mp3, sezioni, [cop], cop, out, locandine=loc)
+                dur = float(subprocess.run(
+                    ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", out],
+                    check=True, capture_output=True, text=True).stdout.strip())
+                # 20 s di audio (chiusura compresa: 2 locandine da 4 s) + 5 s di loghi
+                self.assertAlmostEqual(dur, 25.0, delta=0.5)
+                with open(os.path.join(d, "diapositive.txt")) as f:
+                    voci = f.read()
+                self.assertEqual(voci.count("duration 4.000"), 3)      # intro + 2 locandine
+                self.assertIn("duration 5.000", voci)
+            finally:
+                cfg.PODCAST_DIR = vecchio
 
 
 if __name__ == "__main__":
