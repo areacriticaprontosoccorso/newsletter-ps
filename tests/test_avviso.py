@@ -33,6 +33,14 @@ class Base(unittest.TestCase):
 
 
 class Righe(Base):
+    def test_righe_dei_test_nello_stesso_secondo_dell_avvio_escluse(self):
+        with open(self.log, "a", encoding="utf-8") as f:
+            f.write("2026-11-09 06:53:09,687 [ERROR] X: post non pubblicato (boom)\n"
+                    "2026-11-09 06:53:09,950 [ERROR] errore vero, dopo l'avvio\n")
+        r = "\n".join(avviso.righe_problema(self.log, "2026-11-09 06:53:09,800"))
+        self.assertNotIn("boom", r)
+        self.assertIn("errore vero", r)
+
     def test_solo_righe_dopo_l_avvio(self):
         r = avviso.righe_problema(self.log, "2026-11-08 06:20:00")
         testo = "\n".join(r)

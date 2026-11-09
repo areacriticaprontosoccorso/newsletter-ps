@@ -211,6 +211,62 @@ class Video(unittest.TestCase):
         self.assertAlmostEqual(float(durata(dest)), 10.0 + ig.REEL_LOGHI_S, delta=0.4)
 
 
+class RiprovaReel(unittest.TestCase):
+    """Se Instagram non riesce a elaborare il video si riprova una volta; la pubblicazione mai."""
+
+    def esegui(self, esiti_carico, publish_ok=True):
+        chiamate = []
+
+        def chiama(metodo, url, campi, file_path=None, timeout=60):
+            chiamate.append(url.split("/v21.0/")[-1])
+            if url.endswith("/media"):
+                return {"id": f"C{sum(1 for c in chiamate if c.endswith('/media'))}"}
+            if url.endswith("/media_publish"):
+                if not publish_ok:
+                    raise RuntimeError("HTTP 500")
+                return {"id": "REEL"}
+            return {"status_code": "FINISHED"}
+        esiti = list(esiti_carico)
+
+        def carica(*a, **k):
+            e = esiti.pop(0)
+            if e:
+                raise RuntimeError(e)
+        with mock.patch.object(ig, "_chiama", chiama), mock.patch.object(ig, "_carica_video", carica), \
+             mock.patch.object(ig.time, "sleep") as sleep:
+            r = ig.pubblica_reel("v.mp4", "d", "IG", "TOK")
+        return r, chiamate, sleep
+
+    def test_errore_di_elaborazione_poi_riesce(self):
+        r, ch, sleep = self.esegui(['HTTP 400: {"type":"ProcessingFailedError","message":"Request processing failed"}', None])
+        self.assertEqual(r, "REEL")
+        self.assertEqual(sum(c == "IG/media" for c in ch), 2)           # due contenitori
+        self.assertEqual(sum(c == "IG/media_publish" for c in ch), 1)   # una sola pubblicazione
+        sleep.assert_any_call(ig.PAUSA_RIPROVA_S)
+
+    def test_due_errori_di_elaborazione_si_rinuncia(self):
+        err = "HTTP 400: ProcessingFailedError"
+        r, ch, _ = self.esegui([err, err])
+        self.assertIsNone(r)
+        self.assertEqual(sum(c == "IG/media" for c in ch), 2)
+        self.assertNotIn("IG/media_publish", ch)
+
+    def test_altri_errori_non_si_riprovano(self):
+        r, ch, _ = self.esegui(["HTTP 400: token scaduto"])
+        self.assertIsNone(r)
+        self.assertEqual(sum(c == "IG/media" for c in ch), 1)
+
+    def test_pubblicazione_fallita_non_si_ripete(self):
+        r, ch, _ = self.esegui([None], publish_ok=False)
+        self.assertIsNone(r)
+        self.assertEqual(sum(c == "IG/media_publish" for c in ch), 1)
+
+    def test_il_log_dice_in_che_fase_e_fallito(self):
+        with self.assertLogs("instagram", level="ERROR") as lg:
+            self.esegui(["HTTP 400: token scaduto"])
+        self.assertIn("caricamento del video", lg.output[0])
+
+
 class ApiReel(unittest.TestCase):
     def setUp(self):
         self.d = tempfile.mkdtemp()

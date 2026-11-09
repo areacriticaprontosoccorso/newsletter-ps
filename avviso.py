@@ -3,7 +3,8 @@ Avviso per email quando un invio fallisce o esce incompleto.
 
 Si lancia come ultimo passo del workflow (`python avviso.py`, con `if: always()`).
 Legge il log del run, cioe' solo le righe scritte DOPO l'avvio della newsletter
-(NEWSLETTER_INIZIO, UTC: nello stesso file ci sono anche le righe dei test), e scrive a
+(NEWSLETTER_INIZIO, UTC, al millisecondo: nello stesso file ci sono anche le righe dei test,
+che finiscono nello stesso secondo in cui parte la newsletter), e scrive a
 AVVISI_EMAIL se trova errori o se il job e' fallito. Se tutto e' andato bene non invia nulla.
 
 Cosa conta come problema:
@@ -29,7 +30,7 @@ from email.mime.text import MIMEText
 
 log = logging.getLogger("avviso")
 
-RIGA_LOG = re.compile(r"^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d),\d+ \[(\w+)\] (.*)$")
+RIGA_LOG = re.compile(r"^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d(?:,\d+)?) \[(\w+)\] (.*)$")
 # Un WARNING che parla di un invio mancato e' un problema, gli altri sono rumore.
 WARNING_GRAVE = re.compile(
     r"non pubblicat|non programmat|non inviat|non riuscit|non generat|fallit|impossibile|"
@@ -71,7 +72,7 @@ def righe_problema(percorso_log, inizio):
                                                  and not WARNING_RUMORE.search(testo))
                 if not grave:
                     continue
-                voce = f"{ora[11:]} [{livello}] {_pulisci(testo)[:MAX_CARATTERI_RIGA]}"
+                voce = f"{ora[11:19]} [{livello}] {_pulisci(testo)[:MAX_CARATTERI_RIGA]}"
                 if voce[9:] in viste:          # stessa riga ripetuta (tentativi)
                     continue
                 viste.add(voce[9:])
