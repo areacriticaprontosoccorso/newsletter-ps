@@ -999,16 +999,80 @@ def locandine_video(oggi=None):
     return files
 
 
-def genera_video(mp3, sezioni, immagini, copertina, dest, sottotitoli=None, locandine=None):
+def html_locandina_corsi(png_b64):
+    """Diapositiva 4:5 per una locandina dei corsi: poche parole in testa, la locandina sotto e una
+    fascia scura libera in fondo, dove stanno i sottotitoli."""
+    return f"""<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"></head>
+<body style="margin:0;width:{VIDEO_L}px;height:{VIDEO_A}px;background:{cfg.COLOR_DARK};overflow:hidden;
+             display:flex;flex-direction:column;align-items:center;">
+  <div style="background:{cfg.COLOR_ACCENT};height:12px;width:100%;flex:none;"></div>
+  <div style="height:128px;flex:none;display:flex;flex-direction:column;justify-content:center;
+              align-items:center;gap:8px;">
+    <div style="font-family:monospace;font-size:38px;font-weight:700;color:#ffffff;letter-spacing:6px;
+                text-transform:uppercase;">Corsi in programma</div>
+    <div style="font-family:Georgia,serif;font-size:27px;color:#d8d8d8;">
+      Date, sede e iscrizioni nella newsletter</div>
+  </div>
+  <img src="data:image/png;base64,{png_b64}" style="height:1082px;flex:none;border-radius:4px;"/>
+</body></html>"""
+
+
+def genera_locandine_corsi(file_png, dest_dir):
+    """Per ogni locandina (PNG) la diapositiva con la scritta 'Corsi in programma'. Chi non si
+    riesce a comporre resta com'e': ritorna sempre una lista di file, uno per locandina."""
+    risultato = list(file_png)
+    if not file_png:
+        return risultato
+    try:
+        from playwright.sync_api import sync_playwright
+        tmp = tempfile.mkdtemp()
+        with sync_playwright() as p:
+            b = p.chromium.launch(args=["--no-sandbox"])
+            pg = b.new_page(viewport={"width": VIDEO_L, "height": VIDEO_A})
+            for k, f in enumerate(file_png):
+                try:
+                    with open(f, "rb") as fh:
+                        html = html_locandina_corsi(base64.b64encode(fh.read()).decode())
+                    h = os.path.join(tmp, f"corsi-{k}.html")
+                    with open(h, "w", encoding="utf-8") as fh:
+                        fh.write(html)
+                    pg.goto(pathlib.Path(h).as_uri(), wait_until="networkidle", timeout=cfg.IMG_TIMEOUT_MS)
+                    dest = os.path.join(dest_dir, f"locandina-corsi-{k + 1}.png")
+                    pg.screenshot(path=dest)
+                    risultato[k] = dest
+                except Exception as e:
+                    log.warning(f"Locandina {os.path.basename(f)}: scritta non aggiunta ({e})")
+            b.close()
+        shutil.rmtree(tmp, ignore_errors=True)
+    except Exception as e:
+        log.warning(f"Locandine dei corsi senza scritta ({e})")
+    return risultato
+
+
+def piano_coda(durata_chiusura, n_locandine, sec_loghi, minimo=3.5):
+    """Coda del video: la voce di chiusura (e i saluti) corre sulle locandine, che si dividono il suo
+    tempo, poi i loghi. Ritorna (secondi per locandina, secondi di silenzio da aggiungere all'audio).
+    Una locandina sta almeno `minimo` secondi: se la voce e' piu' corta, l'audio si allunga con una pausa.
+    Senza locandine la voce resta sulla copertina e l'audio si allunga solo dei loghi."""
+    if n_locandine <= 0:
+        return 0.0, float(sec_loghi)
+    per = max(minimo, durata_chiusura / n_locandine)
+    return per, max(0.0, per * n_locandine - durata_chiusura) + sec_loghi
+
+
+def genera_video(mp3, sezioni, immagini, copertina, dest, sottotitoli=None, locandine=None, loghi=None):
     """sezioni: [(inizio_s, fine_s), ...] = intro, articoli..., chiusura.
     Sull'intro e sulla chiusura la copertina, su ogni articolo la sua scheda.
-    `locandine`: immagini in coda, PODCAST_LOCANDINA_SEC secondi ciascuna, in silenzio
-    (l'audio si allunga con una pausa; l'MP3 resta com'e')."""
+    `locandine`: immagini in coda (le locandine dei corsi e, ultima, i loghi). La voce di chiusura e i
+    saluti corrono sulle locandine, che hanno la scritta 'Corsi in programma', e finiscono ai loghi:
+    questi restano PODCAST_LOCANDINA_SEC secondi in silenzio (l'audio si allunga con una pausa;
+    l'MP3 resta com'e'). `loghi`: il file dei loghi (predefinito: loghi_video())."""
     sec = getattr(cfg, "PODCAST_LOCANDINA_SEC", 5)
+    loghi = loghi if loghi is not None else loghi_video()
     # Il montaggio per concatenazione vuole immagini dello stesso formato delle schede
     # (PNG): le locandine, di solito JPG, si convertono prima. Una che non si converte
     # si salta, il video esce con le altre.
-    convertite = []
+    corsi_png, loghi_png = [], None
     for k, f in enumerate(locandine or []):
         if not os.path.exists(f):
             continue
@@ -1016,10 +1080,14 @@ def genera_video(mp3, sezioni, immagini, copertina, dest, sottotitoli=None, loca
         try:
             subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", f, "-frames:v", "1",
                             dest_png], check=True)
-            convertite.append(dest_png)
         except (subprocess.CalledProcessError, OSError) as e:
             log.warning(f"Locandina {os.path.basename(f)} non convertita ({e}): la salto")
-    locandine = convertite
+            continue
+        if loghi and os.path.abspath(f) == os.path.abspath(loghi):
+            loghi_png = dest_png
+        else:
+            corsi_png.append(dest_png)
+    corsi_png = genera_locandine_corsi(corsi_png, cfg.PODCAST_DIR)
     n_art = len(sezioni) - 2
     schede = [immagini[i] if i < len(immagini) and os.path.exists(immagini[i]) else None
               for i in range(n_art)]
@@ -1027,16 +1095,22 @@ def genera_video(mp3, sezioni, immagini, copertina, dest, sottotitoli=None, loca
     if not riserva:
         raise RuntimeError("nessuna immagine per il video")
     sequenza = [copertina or riserva] + [s or riserva for s in schede] + [copertina or riserva]
+    ini_chiusura, fin_chiusura = sezioni[-1]
+    dur_chiusura = max(0.5, fin_chiusura - ini_chiusura)
+    per_locandina, silenzio = piano_coda(dur_chiusura, len(corsi_png), sec if loghi_png else 0.0)
     lista = os.path.join(cfg.PODCAST_DIR, "diapositive.txt")
     with open(lista, "w", encoding="utf-8") as f:
-        for img, (ini, fin) in zip(sequenza, sezioni):
+        # intro e articoli: ognuno dura quanto il suo testo; la chiusura sta sulle locandine, se ci sono
+        for img, (ini, fin) in list(zip(sequenza, sezioni))[:-1] if corsi_png else zip(sequenza, sezioni):
             f.write(f"file '{os.path.abspath(img)}'\nduration {max(0.5, fin - ini):.3f}\n")
-        if locandine:
-            for img in locandine:
-                f.write(f"file '{os.path.abspath(img)}'\nduration {sec:.3f}\n")
-            f.write(f"file '{os.path.abspath(locandine[-1])}'\n")
-        else:
-            f.write(f"file '{os.path.abspath(sequenza[-1])}'\n")
+        ultima = sequenza[-1]
+        for img in corsi_png:
+            f.write(f"file '{os.path.abspath(img)}'\nduration {per_locandina:.3f}\n")
+            ultima = img
+        if loghi_png:
+            f.write(f"file '{os.path.abspath(loghi_png)}'\nduration {sec:.3f}\n")
+            ultima = loghi_png
+        f.write(f"file '{os.path.abspath(ultima)}'\n")
     base = (f"scale={VIDEO_L}:{VIDEO_A}:force_original_aspect_ratio=decrease,"
             f"pad={VIDEO_L}:{VIDEO_A}:(ow-iw)/2:(oh-ih)/2:color=white")
 
@@ -1044,7 +1118,7 @@ def genera_video(mp3, sezioni, immagini, copertina, dest, sottotitoli=None, loca
         subprocess.run(
             ["ffmpeg", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", lista,
              "-i", mp3, "-vf", vf,
-             *(["-af", f"apad=pad_dur={sec * len(locandine):.3f}"] if locandine else []),
+             *(["-af", f"apad=pad_dur={silenzio:.3f}"] if silenzio > 0 else []),
              "-r", "25", "-c:v", "libx264", "-preset", "veryfast",
              "-crf", "23", "-c:a", "aac", "-b:a", "128k",
              "-shortest", "-movflags", "+faststart", dest],
