@@ -1,4 +1,5 @@
 """Reel: l'invito ai corsi scritto in testa alle locandine (il carosello non cambia)."""
+import base64
 import os
 import struct
 import sys
@@ -24,10 +25,12 @@ class Cfg:
     REEL_INVITO_LOCANDINA = INVITO
 
 
-def jpeg_1080x1350(percorso, colore="red"):
-    import subprocess
-    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i",
-                    f"color=c={colore}:s=300x424", "-frames:v", "1", percorso], check=True)
+PNG_1X1 = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+
+
+def immagine_minima(percorso):
+    with open(percorso, "wb") as f:
+        f.write(PNG_1X1)
 
 
 class HtmlInvito(unittest.TestCase):
@@ -44,8 +47,8 @@ class HtmlInvito(unittest.TestCase):
 class DiapositiveReel(unittest.TestCase):
     def setUp(self):
         self.d = tempfile.mkdtemp()
-        self.loc = os.path.join(self.d, "loc.jpg")
-        jpeg_1080x1350(self.loc)
+        self.loc = os.path.join(self.d, "loc.png")
+        immagine_minima(self.loc)
         self.file = [os.path.join(self.d, f"s{k}.jpg") for k in range(3)]
         self.voci = [("c.png", "#111", "copertina"), (self.loc, "#fff", "locandina"), ("l.png", "#fff", "loghi")]
 
