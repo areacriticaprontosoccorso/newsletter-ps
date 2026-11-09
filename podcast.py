@@ -50,7 +50,10 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import config as cfg
-import newsletter_rss as nr
+try:                                   # EM
+    import newsletter_rss as nr
+except ImportError:                    # NIV: stesso file, altro modulo della newsletter
+    import newsletter_NIV as nr
 import corsi as avvisi
 
 log = nr.log
@@ -913,7 +916,7 @@ def _accorcia(t, n=95):
 
 def html_copertina(articoli, wl):
     logo = ""
-    for nome in ("logo-medicina-urgenza.png", "logo.jpg"):
+    for nome in ("logo-medicina-urgenza.png", "logo.jpg", "logo.png"):
         p = os.path.join(cfg.DIR_BASE, nome)
         if os.path.exists(p):
             mime = "image/png" if nome.endswith(".png") else "image/jpeg"
@@ -941,9 +944,9 @@ def html_copertina(articoli, wl):
       <div style="font-family:monospace;font-size:23px;color:#9a9a9a;letter-spacing:5px;
                   text-transform:uppercase;margin-top:34px;">Podcast · Settimana {wl['settimana']}/{wl['anno']}</div>
       <div style="font-family:Georgia,serif;font-size:64px;font-weight:700;color:#ffffff;
-                  line-height:1.1;margin:16px 0 12px;">EM Weekly Digest</div>
+                  line-height:1.1;margin:16px 0 12px;">{nr.esc(getattr(cfg, "PODCAST_TITOLO", "EM Weekly Digest"))}</div>
       <div style="font-family:Georgia,serif;font-size:31px;color:#d8d8d8;">
-        {len(articoli)} articoli, 2 minuti, sola medicina d'emergenza-urgenza</div>
+        {len(articoli)} articoli, 2 minuti, {nr.esc(getattr(cfg, "PODCAST_TEMA", "sola medicina d'emergenza-urgenza"))}</div>
     </div>
     <div style="display:flex;flex-direction:column;gap:30px;">{righe}</div>
     <div style="font-family:monospace;font-size:19px;color:#7a7a7a;">{nr.esc(cfg.NOME_SERVIZIO)}</div>
@@ -986,7 +989,7 @@ def locandine_video(oggi=None):
     che e' riuscito a caricare."""
     files = []
     try:
-        for c in avvisi.carica_corsi("em", oggi=oggi, base_url=cfg.URL_RAW_REPO,
+        for c in avvisi.carica_corsi(getattr(cfg, "PODCAST_CORSI", "em"), oggi=oggi, base_url=cfg.URL_RAW_REPO,
                                      ignora_frequenza=True, massimo=8):
             f = c.get("immagine_file")
             if f and os.path.exists(f) and f not in files:
@@ -1325,7 +1328,8 @@ def genera(archivio=None, copione_file=None):
         atempo = min(max(durata_voce / (cfg.PODCAST_DURATA_MAX - off_ini - coda - 0.5), 1.0),
                      cfg.PODCAST_ATEMPO_MAX)
         mp3 = os.path.join(cfg.PODCAST_DIR, f"podcast-s{str(wl['settimana']).zfill(2)}-{wl['anno']}.mp3")
-        titolo = f"title=EM Weekly Digest — podcast settimana {wl['settimana']}/{wl['anno']}"
+        titolo = (f"title={getattr(cfg, 'PODCAST_TITOLO', 'EM Weekly Digest')} — podcast settimana "
+                  f"{wl['settimana']}/{wl['anno']}")
         voce_norm = f"atempo={atempo:.4f},loudnorm=I=-16:TP=-1.5:LRA=11,aresample=44100"
         if cfg.PODCAST_SIGLA:
             f_ini = os.path.join(cfg.PODCAST_DIR, "sigla_ini.wav")
@@ -1361,8 +1365,11 @@ def genera(archivio=None, copione_file=None):
         sezioni = [(sezioni[i][0] if i else 0.0,
                     sezioni[i + 1][0] if i + 1 < len(sezioni) else durata)
                    for i in range(len(sezioni))]
-        prefisso = os.path.join(cfg.IMG_DIR, f"digest-s{str(wl['settimana']).zfill(2)}-")
-        immagini = [f"{prefisso}{str(i).zfill(2)}.png" for i in range(1, len(articoli) + 1)]
+        # Le schede che scorrono nel video: quelle indicate nell'archivio ("immagini", NIV) oppure
+        # le schede PNG della newsletter (EM).
+        prefisso = os.path.join(getattr(cfg, "IMG_DIR", "immagini"), f"digest-s{str(wl['settimana']).zfill(2)}-")
+        immagini = doc.get("immagini") or [f"{prefisso}{str(i).zfill(2)}.png"
+                                           for i in range(1, len(articoli) + 1)]
         copertina = genera_copertina(articoli, wl, os.path.join(cfg.PODCAST_DIR, "copertina.png"))
         mp4 = os.path.join(cfg.PODCAST_DIR, f"podcast-s{str(wl['settimana']).zfill(2)}-{wl['anno']}.mp4")
         ass = None
