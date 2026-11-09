@@ -121,8 +121,37 @@ class TestCodaVideo(unittest.TestCase):
     def test_scritta_sulla_locandina(self):
         import podcast
         html = podcast.html_locandina_corsi("AAAA")
-        self.assertIn("Corsi in programma", html)
+        self.assertIn("Sei un medico d&#x27;emergenza-urgenza? Partecipa ai nostri corsi!", html.replace("&#39;", "&#x27;"))
         self.assertIn("newsletter", html)
+
+    def test_chiusura_con_corsi_avvertenza_invito_saluti(self):
+        import podcast
+        testo, n_invito, n_saluti = podcast.chiusura_podcast(True)
+        self.assertTrue(testo.startswith("Sintesi generate con l'intelligenza artificiale"))
+        self.assertTrue(testo.endswith("Partecipa ai nostri corsi! Alla prossima."))
+        self.assertEqual((n_invito, n_saluti), (8, 2))
+
+    def test_chiusura_senza_corsi_niente_invito(self):
+        import podcast
+        testo, n_invito, n_saluti = podcast.chiusura_podcast(False)
+        self.assertNotIn("corsi!", testo)
+        self.assertTrue(testo.endswith("nella newsletter. Alla prossima."))
+        self.assertEqual((n_invito, n_saluti), (0, 2))
+
+    def test_inizio_invito_dai_tempi_delle_parole(self):
+        import podcast
+        testo, n_i, n_s = podcast.chiusura_podcast(True)
+        parole = [("x", float(k), k + 0.5) for k in range(40)]          # 40 parole, la 40a e' l'ultima
+        # le ultime 10 sono invito (8) e saluti (2): l'invito comincia alla parola 30
+        self.assertEqual(podcast.inizio_invito_corsi(parole, n_i, n_s, 0, 40, testo), 30.0)
+
+    def test_inizio_invito_stimato_senza_tempi_e_nessuno_senza_invito(self):
+        import podcast
+        testo, n_i, n_s = podcast.chiusura_podcast(True)
+        t = podcast.inizio_invito_corsi([], n_i, n_s, 10.0, 20.0, testo)
+        self.assertTrue(10.0 < t < 20.0)
+        testo2, n_i2, n_s2 = podcast.chiusura_podcast(False)
+        self.assertIsNone(podcast.inizio_invito_corsi([], n_i2, n_s2, 10.0, 20.0, testo2))
 
     @unittest.skipUnless(shutil.which("ffmpeg"), "serve ffmpeg")
     def test_video_voce_sulle_locandine_e_loghi_in_silenzio(self):
@@ -139,15 +168,17 @@ class TestCodaVideo(unittest.TestCase):
                 sezioni = [(0, 4), (4, 12), (12, 20)]                  # intro, 1 articolo, chiusura 8 s
                 loc = podcast.locandine_video(date(2026, 11, 9))       # 2 locandine + loghi
                 out = os.path.join(d, "v.mp4")
-                podcast.genera_video(mp3, sezioni, [cop], cop, out, locandine=loc)
+                podcast.genera_video(mp3, sezioni, [cop], cop, out, locandine=loc, inizio_corsi=14.0)
                 dur = float(subprocess.run(
                     ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", out],
                     check=True, capture_output=True, text=True).stdout.strip())
-                # 20 s di audio (chiusura compresa: 2 locandine da 4 s) + 5 s di loghi
-                self.assertAlmostEqual(dur, 25.0, delta=0.5)
+                # copertina fino a 14 s; poi 2 locandine da 3,5 s sulla voce (6 s: l'audio si allunga
+                # di 1 s) e 5 s di loghi in silenzio: 4 + 8 + 2 + 7 + 5
+                self.assertAlmostEqual(dur, 26.0, delta=0.5)
                 with open(os.path.join(d, "diapositive.txt")) as f:
                     voci = f.read()
-                self.assertEqual(voci.count("duration 4.000"), 3)      # intro + 2 locandine
+                self.assertIn("duration 2.000", voci)                  # la copertina fino all'invito
+                self.assertEqual(voci.count("duration 3.500"), 2)      # le due locandine
                 self.assertIn("duration 5.000", voci)
             finally:
                 cfg.PODCAST_DIR = vecchio

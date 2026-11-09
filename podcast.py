@@ -999,6 +999,28 @@ def locandine_video(oggi=None):
     return files
 
 
+def chiusura_podcast(con_corsi):
+    """(testo, n. parole dell'invito ai corsi, n. parole dei saluti). Con corsi in programma la chiusura
+    e': avvertenza, invito ai corsi, saluti; senza, avvertenza e saluti."""
+    avviso, saluti = cfg.PODCAST_CHIUSURA_AVVISO, cfg.PODCAST_CHIUSURA_SALUTI
+    invito = cfg.PODCAST_CHIUSURA_CORSI if con_corsi else ""
+    parole = lambda t: len(testo_visibile(t).split())
+    return " ".join(x for x in (avviso, invito, saluti) if x), parole(invito), parole(saluti)
+
+
+def inizio_invito_corsi(tempi_parole, n_invito, n_saluti, ini_chiusura, fin_chiusura, testo_chiusura):
+    """Quando comincia l'invito ai corsi, sul tempo dell'audio grezzo: l'inizio della sua prima
+    parola (le ultime parole dei tempi sono quelle della chiusura); senza tempi, una stima in
+    proporzione ai caratteri. None se la chiusura non ha l'invito."""
+    if n_invito <= 0:
+        return None
+    if tempi_parole and len(tempi_parole) >= n_invito + n_saluti:
+        return tempi_parole[len(tempi_parole) - n_saluti - n_invito][1]
+    vis = testo_visibile(testo_chiusura)
+    pos = vis.find(testo_visibile(cfg.PODCAST_CHIUSURA_CORSI))
+    return ini_chiusura + (fin_chiusura - ini_chiusura) * max(0, pos) / max(1, len(vis))
+
+
 def html_locandina_corsi(png_b64):
     """Diapositiva 4:5 per una locandina dei corsi: poche parole in testa, la locandina sotto e una
     fascia scura libera in fondo, dove stanno i sottotitoli."""
@@ -1006,14 +1028,14 @@ def html_locandina_corsi(png_b64):
 <body style="margin:0;width:{VIDEO_L}px;height:{VIDEO_A}px;background:{cfg.COLOR_DARK};overflow:hidden;
              display:flex;flex-direction:column;align-items:center;">
   <div style="background:{cfg.COLOR_ACCENT};height:12px;width:100%;flex:none;"></div>
-  <div style="height:128px;flex:none;display:flex;flex-direction:column;justify-content:center;
+  <div style="height:176px;flex:none;display:flex;flex-direction:column;justify-content:center;
               align-items:center;gap:8px;">
-    <div style="font-family:monospace;font-size:38px;font-weight:700;color:#ffffff;letter-spacing:6px;
-                text-transform:uppercase;">Corsi in programma</div>
-    <div style="font-family:Georgia,serif;font-size:27px;color:#d8d8d8;">
+    <div style="font-family:Georgia,serif;font-size:37px;font-weight:700;color:#ffffff;
+                text-align:center;line-height:1.15;padding:0 40px;">{nr.esc(cfg.PODCAST_CHIUSURA_CORSI)}</div>
+    <div style="font-family:monospace;font-size:24px;color:#d8d8d8;letter-spacing:1px;">
       Date, sede e iscrizioni nella newsletter</div>
   </div>
-  <img src="data:image/png;base64,{png_b64}" style="height:1082px;flex:none;border-radius:4px;"/>
+  <img src="data:image/png;base64,{png_b64}" style="height:1050px;flex:none;border-radius:4px;"/>
 </body></html>"""
 
 
@@ -1060,13 +1082,15 @@ def piano_coda(durata_chiusura, n_locandine, sec_loghi, minimo=3.5):
     return per, max(0.0, per * n_locandine - durata_chiusura) + sec_loghi
 
 
-def genera_video(mp3, sezioni, immagini, copertina, dest, sottotitoli=None, locandine=None, loghi=None):
+def genera_video(mp3, sezioni, immagini, copertina, dest, sottotitoli=None, locandine=None, loghi=None,
+                 inizio_corsi=None):
     """sezioni: [(inizio_s, fine_s), ...] = intro, articoli..., chiusura.
     Sull'intro e sulla chiusura la copertina, su ogni articolo la sua scheda.
-    `locandine`: immagini in coda (le locandine dei corsi e, ultima, i loghi). La voce di chiusura e i
-    saluti corrono sulle locandine, che hanno la scritta 'Corsi in programma', e finiscono ai loghi:
-    questi restano PODCAST_LOCANDINA_SEC secondi in silenzio (l'audio si allunga con una pausa;
-    l'MP3 resta com'e'). `loghi`: il file dei loghi (predefinito: loghi_video())."""
+    `locandine`: immagini in coda (le locandine dei corsi e, ultima, i loghi). Le locandine compaiono
+    quando la voce comincia l'invito ai corsi (`inizio_corsi`, secondi dell'MP3; senza, all'inizio della
+    chiusura) e restano fino alla fine della voce e dei saluti, dividendosi quel tempo; poi i loghi,
+    PODCAST_LOCANDINA_SEC secondi in silenzio (l'audio si allunga con una pausa; l'MP3 resta com'e').
+    `loghi`: il file dei loghi (predefinito: loghi_video())."""
     sec = getattr(cfg, "PODCAST_LOCANDINA_SEC", 5)
     loghi = loghi if loghi is not None else loghi_video()
     # Il montaggio per concatenazione vuole immagini dello stesso formato delle schede
@@ -1096,13 +1120,21 @@ def genera_video(mp3, sezioni, immagini, copertina, dest, sottotitoli=None, loca
         raise RuntimeError("nessuna immagine per il video")
     sequenza = [copertina or riserva] + [s or riserva for s in schede] + [copertina or riserva]
     ini_chiusura, fin_chiusura = sezioni[-1]
-    dur_chiusura = max(0.5, fin_chiusura - ini_chiusura)
-    per_locandina, silenzio = piano_coda(dur_chiusura, len(corsi_png), sec if loghi_png else 0.0)
+    ini_corsi = min(max(inizio_corsi if inizio_corsi is not None else ini_chiusura, ini_chiusura),
+                    fin_chiusura - 0.5)
+    sulla_copertina = max(0.0, ini_corsi - ini_chiusura)        # avvertenza: ancora la copertina
+    dur_corsi = max(0.5, fin_chiusura - ini_corsi)
+    per_locandina, silenzio = piano_coda(dur_corsi, len(corsi_png), sec if loghi_png else 0.0)
     lista = os.path.join(cfg.PODCAST_DIR, "diapositive.txt")
     with open(lista, "w", encoding="utf-8") as f:
-        # intro e articoli: ognuno dura quanto il suo testo; la chiusura sta sulle locandine, se ci sono
-        for img, (ini, fin) in list(zip(sequenza, sezioni))[:-1] if corsi_png else zip(sequenza, sezioni):
+        # intro e articoli: ognuno dura quanto il suo testo; della chiusura, la copertina sta fino
+        # all'invito ai corsi, poi le locandine (se ci sono)
+        for img, (ini, fin) in list(zip(sequenza, sezioni))[:-1]:
             f.write(f"file '{os.path.abspath(img)}'\nduration {max(0.5, fin - ini):.3f}\n")
+        if not corsi_png:
+            f.write(f"file '{os.path.abspath(sequenza[-1])}'\nduration {max(0.5, fin_chiusura - ini_chiusura):.3f}\n")
+        elif sulla_copertina > 0.05:
+            f.write(f"file '{os.path.abspath(sequenza[-1])}'\nduration {sulla_copertina:.3f}\n")
         ultima = sequenza[-1]
         for img in corsi_png:
             f.write(f"file '{os.path.abspath(img)}'\nduration {per_locandina:.3f}\n")
@@ -1169,14 +1201,19 @@ def genera(archivio=None, copione_file=None):
         esito["copione"] = testi
         esito["apertura"] = apertura
         testo_intro = intro(len(articoli), apertura)
+        # Le locandine dei corsi in programma: se ce ne sono, la voce le presenta prima dei saluti.
+        locandine = locandine_video()
+        loghi = loghi_video()
+        n_corsi = len(locandine) - (1 if loghi and loghi in locandine else 0)
+        chiusura, n_invito, n_saluti = chiusura_podcast(n_corsi > 0)
         with open(os.path.join(cfg.PODCAST_DIR, "copione.txt"), "w", encoding="utf-8") as f:
             f.write("\n\n".join([testo_intro] + [testo_visibile(t) for t in testi]
-                                + [cfg.PODCAST_CHIUSURA]) + "\n")
+                                + [chiusura]) + "\n")
 
         import numpy as np
         import soundfile as sf
         gemini = cfg.PODCAST_MOTORE == "gemini"
-        sezioni_testo = [testo_intro] + testi + [cfg.PODCAST_CHIUSURA]
+        sezioni_testo = [testo_intro] + testi + [chiusura]
         sezioni_vis = [testo_visibile(s) for s in sezioni_testo]
         risultato_gemini, voce = None, None
         if gemini:
@@ -1297,12 +1334,14 @@ def genera(archivio=None, copione_file=None):
         if cfg.PODCAST_SOTTOTITOLI and tempi_parole:
             ass = scrivi_sottotitoli([(w, mappa(a), mappa(b)) for w, a, b in tempi_parole], 1.0,
                                      os.path.join(cfg.PODCAST_DIR, "sottotitoli.ass"))
-        locandine = locandine_video()
         if locandine:
-            log.info(f"Video: {len(locandine)} immagini in coda (locandine e loghi) "
-                     f"({getattr(cfg, 'PODCAST_LOCANDINA_SEC', 5)} s ciascuna)")
+            log.info(f"Video: {n_corsi} locandine sulla voce di chiusura, poi i loghi "
+                     f"({getattr(cfg, 'PODCAST_LOCANDINA_SEC', 5)} s)")
+        t_corsi = inizio_invito_corsi(tempi_parole, n_invito, n_saluti, confini[-1][0], confini[-1][1],
+                                      chiusura)
+        t_corsi = mappa(t_corsi) if t_corsi is not None else None
         _, con_sottotitoli = genera_video(mp3, sezioni, immagini, copertina, mp4,
-                                          sottotitoli=ass, locandine=locandine)
+                                          sottotitoli=ass, locandine=locandine, inizio_corsi=t_corsi)
         esito["sottotitoli"] = con_sottotitoli
         log.info(f"Video: {mp4} ({os.path.getsize(mp4) / 1e6:.1f} MB)")
 
