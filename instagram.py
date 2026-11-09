@@ -396,21 +396,41 @@ def crea_reel(diapositive, durate, dest, sfondo="#1a1a1a", musica=None):
     return dest
 
 
-def punto_di_taglio(sezioni):
+def punto_di_taglio(sezioni, massimo=None):
     """Dove tagliare l'estratto del podcast: la fine della sezione (intro, articoli...) che cade fra
-    ESTRATTO_MIN_S e ESTRATTO_MAX_S, la piu' vicina a ESTRATTO_STANDARD_S; senza, ESTRATTO_STANDARD_S."""
-    fini = [float(f) for _, f in (sezioni or []) if ESTRATTO_MIN_S <= float(f) <= ESTRATTO_MAX_S]
+    ESTRATTO_MIN_S e `massimo` (predefinito ESTRATTO_MAX_S), la piu' vicina a ESTRATTO_STANDARD_S;
+    senza, ESTRATTO_STANDARD_S (o `massimo`, se e' minore)."""
+    massimo = ESTRATTO_MAX_S if massimo is None else min(massimo, ESTRATTO_MAX_S)
+    fini = [float(f) for _, f in (sezioni or []) if ESTRATTO_MIN_S <= float(f) <= massimo]
     if not fini:
-        return ESTRATTO_STANDARD_S
+        return min(ESTRATTO_STANDARD_S, massimo)
     return min(fini, key=lambda x: abs(x - ESTRATTO_STANDARD_S))
 
 
-def crea_estratto_podcast(mp4, dest, sezioni=None, chiusura=None, sfondo="#1a1a1a"):
+SALUTI_MAX_S = 20.0        # oltre, i saluti non entrano nel Reel (qualcosa non torna nei tempi)
+
+
+def coda_saluti(saluti):
+    """(inizio, durata) dei saluti finali del podcast da mettere sui loghi, o None se mancano o non
+    sono plausibili. `saluti`: [inizio, fine] in secondi del video."""
+    try:
+        ini, fin = float(saluti[0]), float(saluti[1])
+    except (TypeError, ValueError, IndexError):
+        return None
+    return (ini, fin - ini) if 0.5 <= fin - ini <= SALUTI_MAX_S and ini > 0 else None
+
+
+def crea_estratto_podcast(mp4, dest, sezioni=None, chiusura=None, sfondo="#1a1a1a", saluti=None):
     """Estratto del video del podcast, in 9:16: il video 4:5 nel riquadro sotto la zona coperta
     dall'app, sopra e sotto lo stesso fotogramma sfocato; dissolvenza finale di immagine e voce.
-    Con `chiusura` (immagine 4:5, i loghi) in coda REEL_LOGHI_S secondi di quella, in silenzio.
+    Con `chiusura` (immagine 4:5, i loghi) in coda quella: con `saluti` ([inizio, fine] nel video)
+    sopra i loghi si sentono i saluti finali del podcast (invito ai corsi, «Alla prossima», sigla) e
+    i loghi durano quanto loro; senza, REEL_LOGHI_S secondi in silenzio. Il Reel resta entro 90 s.
     Restituisce (dest, durata dell'estratto, senza la chiusura). Solleva se ffmpeg fallisce."""
-    durata = punto_di_taglio(sezioni)
+    coda = coda_saluti(saluti) if chiusura and os.path.exists(chiusura) else None
+    dur_loghi = max(REEL_LOGHI_S, coda[1] + 0.3) if coda else REEL_LOGHI_S
+    massimo = ESTRATTO_MAX_S + REEL_LOGHI_S - dur_loghi
+    durata = punto_di_taglio(sezioni, min(massimo, coda[0]) if coda else massimo)   # mai dentro i saluti
     try:
         lung = float(subprocess.run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", mp4],
@@ -426,12 +446,17 @@ def crea_estratto_podcast(mp4, dest, sezioni=None, chiusura=None, sfondo="#1a1a1
             f"[0:a]afade=t=out:st={st:.2f}:d=0.8,aformat=sample_rates=48000:channel_layouts=stereo[a0]")
     ingressi = ["-i", mp4]
     if chiusura and os.path.exists(chiusura):
-        ingressi += ["-loop", "1", "-framerate", "30", "-t", f"{REEL_LOGHI_S:.3f}", "-i",
-                     os.path.abspath(chiusura), "-f", "lavfi", "-t", f"{REEL_LOGHI_S:.3f}", "-i",
-                     "anullsrc=r=48000:cl=stereo"]
+        ingressi += ["-loop", "1", "-framerate", "30", "-t", f"{dur_loghi:.3f}", "-i",
+                     os.path.abspath(chiusura)]
+        if coda:           # la voce dei saluti, presa dallo stesso video
+            ingressi += ["-ss", f"{coda[0]:.3f}", "-t", f"{coda[1]:.3f}", "-vn", "-i", mp4]
+            audio_coda = f"[2:a]apad=whole_dur={dur_loghi:.3f},atrim=0:{dur_loghi:.3f},"
+        else:
+            ingressi += ["-f", "lavfi", "-t", f"{dur_loghi:.3f}", "-i", "anullsrc=r=48000:cl=stereo"]
+            audio_coda = "[2:a]"
         graf += (f";[1:v]scale={LARGHEZZA}:{ALTEZZA},setsar=1,"
                  f"pad={REEL_L}:{REEL_A}:0:{REEL_Y}:color={_colore_ffmpeg(sfondo)},fps=30,format=yuv420p[v1];"
-                 "[2:a]aformat=sample_rates=48000:channel_layouts=stereo[a1];"
+                 f"{audio_coda}aformat=sample_rates=48000:channel_layouts=stereo[a1];"
                  "[v0][a0][v1][a1]concat=n=2:v=1:a=1[v][au]")
     else:
         graf += ";[v0]null[v];[a0]anull[au]"
@@ -907,7 +932,7 @@ def pubblica(voci, didascalia, cfg, dry_run=False, parole=None):
         return None
 
 
-def pubblica_reel_podcast(mp4, sezioni, didascalia, cfg, dry_run=False):
+def pubblica_reel_podcast(mp4, sezioni, didascalia, cfg, dry_run=False, saluti=None):
     """Reel con l'estratto del podcast (solo EM). Mai eccezioni. Id, 'dry-run' o None."""
     try:
         if not getattr(cfg, "IG_ABILITATO", True) or not getattr(cfg, "IG_REEL_PODCAST", True):
@@ -920,7 +945,7 @@ def pubblica_reel_podcast(mp4, sezioni, didascalia, cfg, dry_run=False):
         os.makedirs(cfg.IG_DIR, exist_ok=True)
         dest, durata = crea_estratto_podcast(mp4, os.path.join(cfg.IG_DIR, "reel-podcast.mp4"), sezioni,
                                              getattr(cfg, "IG_LOGHI", None),
-                                             getattr(cfg, "COLOR_DARK", "#1a1a1a"))
+                                             getattr(cfg, "COLOR_DARK", "#1a1a1a"), saluti)
         mb = os.path.getsize(dest) / 1e6
         if dry_run:
             with open(os.path.join(cfg.IG_DIR, "didascalia-podcast.txt"), "w", encoding="utf-8") as f:
