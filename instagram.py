@@ -621,20 +621,44 @@ def _carica_video(contenitore, percorso, token, versione, url=None):
     return esito
 
 
+PAUSA_RIPROVA_S = 30
+
+
+def _errore_di_elaborazione(e):
+    """Instagram non e' riuscito a elaborare il video (puo' essere un intoppo passeggero)."""
+    return any(k in str(e) for k in ("ProcessingFailed", "Request processing failed", "rifiutato il contenuto"))
+
+
 def pubblica_reel(video, didascalia, ig_user_id, token, versione="v21.0"):
-    """Pubblica un Reel. Restituisce l'id del post, o None se qualcosa non va (errore nel log)."""
+    """Pubblica un Reel. Restituisce l'id del post, o None se qualcosa non va (errore nel log).
+    Se Instagram non riesce a elaborare il video, riprova una volta con un contenitore nuovo (non
+    c'e' ancora nessun post, quindi niente doppioni); la pubblicazione non si ripete mai."""
+    base = f"https://graph.facebook.com/{versione}/{ig_user_id}"
+    c, fase = None, ""
+    for tentativo in (1, 2):
+        try:
+            fase = "creazione del contenitore"
+            c = _chiama("POST", f"{base}/media",
+                        {"media_type": "REELS", "upload_type": "resumable", "share_to_feed": "true",
+                         "caption": taglia_didascalia(didascalia), "access_token": token})["id"]
+            fase = "caricamento del video"
+            _carica_video(c, video, token, versione)
+            fase = "elaborazione"
+            _attendi(c, token, versione, attesa_max=ATTESA_REEL_S)
+            break
+        except Exception as e:
+            if tentativo == 1 and _errore_di_elaborazione(e):
+                log.warning(f"Instagram: Reel, {fase} non riuscita ({e}) - riprovo tra {PAUSA_RIPROVA_S} s")
+                time.sleep(PAUSA_RIPROVA_S)
+                continue
+            log.error(f"Instagram: Reel non pubblicato ({fase}: {e})")
+            return None
     try:
-        base = f"https://graph.facebook.com/{versione}/{ig_user_id}"
-        c = _chiama("POST", f"{base}/media",
-                    {"media_type": "REELS", "upload_type": "resumable", "share_to_feed": "true",
-                     "caption": taglia_didascalia(didascalia), "access_token": token})["id"]
-        _carica_video(c, video, token, versione)
-        _attendi(c, token, versione, attesa_max=ATTESA_REEL_S)
         post = _chiama("POST", f"{base}/media_publish", {"creation_id": c, "access_token": token})["id"]
         log.info(f"Instagram: Reel pubblicato -> {post}")
         return post
     except Exception as e:
-        log.error(f"Instagram: Reel non pubblicato ({e})")
+        log.error(f"Instagram: Reel non pubblicato (pubblicazione: {e})")
         return None
 
 

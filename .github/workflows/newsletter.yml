@@ -113,10 +113,11 @@ jobs:
       # Newsletter completa: selezione, sintesi, schede, podcast (fino a 45 minuti,
       # poi si rinuncia), mail con l'MP3 allegato, post Facebook. Parte all'ora in
       # cui cron-job.org avvia il workflow; la mail esce a podcast pronto.
-      # Segna l'ora d'inizio (UTC): l'avviso per email legge dal log solo le righe di
-      # questo run, non quelle dei test che scrivono nello stesso file.
+      # Segna l'ora d'inizio (UTC, al millisecondo): l'avviso per email legge dal log solo le
+      # righe di questo run, non quelle dei test che scrivono nello stesso file e finiscono
+      # nello stesso secondo.
       - name: Segna l'inizio della newsletter
-        run: echo "NEWSLETTER_INIZIO=$(date -u '+%Y-%m-%d %H:%M:%S')" >> "$GITHUB_ENV"
+        run: echo "NEWSLETTER_INIZIO=$(date -u '+%Y-%m-%d %H:%M:%S,%3N')" >> "$GITHUB_ENV"
 
       - name: Esegui newsletter
         env:

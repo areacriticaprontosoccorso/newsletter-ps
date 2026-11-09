@@ -207,7 +207,7 @@ basso e con dissolvenza finale. Va scelta una traccia senza diritti d'autore e c
 l'uso commerciale. `IG_REEL_SCHEDE = False` in `config.py` spegne il Reel.
 Il Reel si carica con l'upload «resumable» dell'API (`rupload.facebook.com`), senza indirizzi pubblici.
 Non è stato provato con l'API reale (nei test è simulata): se il primo Reel non esce, nel log cerca
-«Instagram: Reel non pubblicato».
+«Instagram: Reel non pubblicato». Se Instagram non riesce a elaborare il video (`ProcessingFailedError`), il Reel si riprova una volta con un contenitore nuovo dopo 30 s; la pubblicazione non si ripete mai, quindi niente doppioni. Il log dice in che fase è fallito (creazione, caricamento, elaborazione, pubblicazione).
 
 **Reel del podcast (solo EM).** Subito dopo gli altri esce un Reel con un estratto del podcast: dal video
 già montato (`podcast/…mp4`) si prende l'inizio, tagliato alla fine della sezione (intro o articolo) che
