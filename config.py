@@ -229,9 +229,13 @@ PODCAST_INTRO = ("Benvenuti! Questa è la newsletter settimanale della Medicina 
                  "d'Emergenza-Urgenza dell'ospedale San Giovanni Bosco di Torino. "
                  "{Articoli} articoli, due minuti, sola medicina d'emergenza-urgenza. "
                  "Buon ascolto!")
-PODCAST_CHIUSURA = ("Sintesi generate con l'intelligenza artificiale: verificate sempre sulle "
-                    "fonti. Le sintesi complete e i link agli articoli sono nella newsletter. "
-                    "Alla prossima.")
+# Chiusura parlata: avvertenza, (se ci sono corsi in programma) l'invito ai corsi, saluti.
+# L'invito compare anche scritto sulle locandine, che appaiono mentre lo si dice.
+PODCAST_CHIUSURA_AVVISO = ("Sintesi generate con l'intelligenza artificiale: verificate sempre sulle "
+                           "fonti. Le sintesi complete e i link agli articoli sono nella newsletter.")
+PODCAST_CHIUSURA_CORSI = "Sei un medico d'emergenza-urgenza? Partecipa ai nostri corsi!"
+PODCAST_CHIUSURA_SALUTI = "Alla prossima."
+PODCAST_CHIUSURA = PODCAST_CHIUSURA_AVVISO + " " + PODCAST_CHIUSURA_SALUTI      # senza corsi
 
 # Carattere della voce Chatterbox: valori più bassi = intonazione più calma e meno
 # enfatica. 0,35 / 0,3 scelti all'ascolto il 30/10 (prima: 0,5 / 0,5).
