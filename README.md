@@ -200,6 +200,8 @@ lunghezza del titolo. Il codice è `instagram.py` (`dati_scheda`, `html_scheda`,
 
 **Invito sulle locandine dei Reel.** `REEL_INVITO_LOCANDINA` e `REEL_INVITO_SOTTO` in `config.py`; vuoto = nessuna scritta. Qui è spento (`REEL_INVITO_LOCANDINA = ""`): il podcast di EM ha già l'invito, detto a voce e scritto sulle locandine; scrivi la frase in `config.py` per averla anche nei Reel. Il codice è `diapositive_reel` in `instagram.py`.
 
+**Musica.** Il Reel delle schede ha la musica se nel repo c'è `musica/sottofondo.mp3` (`IG_MUSICA`); allora in fondo alla didascalia del Reel va il credito `IG_MUSICA_CREDITO` (licenza CC BY: l'autore va citato). Senza il file il Reel resta muto e senza credito. Il podcast ha un tappeto musicale sotto la voce se c'è `musica/podcast.mp3` (`PODCAST_MUSICA`), `PODCAST_MUSICA_DB` = −24 LU sotto la voce, in ciclo, con dissolvenze; il credito `PODCAST_MUSICA_CREDITO` va nella descrizione del video e del Reel del podcast.
+
 **Reel delle schede.** Subito dopo il carosello esce un Reel 9:16 con le stesse diapositive, una dopo
 l'altra: 3 s la copertina, da 5 a 8 s ogni scheda (secondo le parole da leggere), 4 s ogni locandina.
 Le diapositive stanno in un riquadro 4:5 sotto i 240 px di sopra, che l'app copre col profilo. Senza
