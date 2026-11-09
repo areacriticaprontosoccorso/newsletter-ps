@@ -1381,6 +1381,8 @@ def pubblica_instagram(articoli, immagini, wl, dry_run=False):
         didascalia_podcast = instagram.componi_didascalia(
             cfg.IG_PODCAST_INTESTAZIONE.format(settimana=wl["settimana"], anno=wl["anno"]),
             [], None, cfg.IG_CHIUSURA, cfg.IG_HASHTAG)
+        didascalia_podcast = instagram.con_credito_musica(didascalia_podcast, cfg, "PODCAST_MUSICA",
+                                                          "PODCAST_MUSICA_CREDITO")
         instagram.pubblica_reel_podcast(mp4, sezioni, didascalia_podcast, cfg, dry_run=dry_run)
         return post
     except Exception as e:

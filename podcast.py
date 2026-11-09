@@ -1185,6 +1185,39 @@ def misura_lufs(wav):
     return float(m[-1]) if m else -20.0
 
 
+def aggiungi_tappeto(mp3, musica, db=-24.0):
+    """Mette `musica` (in ciclo) sotto tutto l'MP3, `db` LU sotto la voce (che e' a -16 LUFS), con
+    dissolvenza in entrata e in uscita. La durata non cambia. True se fatto; mai eccezioni:
+    se qualcosa va storto l'MP3 resta com'e'."""
+    try:
+        if not musica or not os.path.exists(musica):
+            return False
+        durata = float(subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", mp3],
+            check=True, capture_output=True, text=True).stdout.strip())
+        guadagno = (-16.0 + db) - misura_lufs(musica)
+        tmp = mp3 + ".tappeto.mp3"
+        filtro = (f"[1:a]aresample=44100,volume={guadagno:.2f}dB,atrim=0:{durata:.3f},"
+                  f"afade=t=in:st=0:d=1.5,afade=t=out:st={max(0.0, durata - 2.5):.2f}:d=2.5[m];"
+                  "[0:a][m]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.89[out]")
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", mp3, "-stream_loop", "-1", "-i", musica,
+                        "-filter_complex", filtro, "-map", "[out]", "-map_metadata", "0",
+                        "-ar", "44100", "-ac", "1", "-b:a", "128k", "-t", f"{durata:.3f}", tmp],
+                       check=True, capture_output=True)
+        os.replace(tmp, mp3)
+        return True
+    except Exception as e:
+        log.warning(f"Tappeto musicale non aggiunto ({e}): il podcast resta senza")
+        return False
+
+
+def credito_musica():
+    """La riga di credito della musica del podcast, o '' se il file non c'e'."""
+    musica = getattr(cfg, "PODCAST_MUSICA", None)
+    credito = (getattr(cfg, "PODCAST_MUSICA_CREDITO", "") or "").strip()
+    return credito if credito and musica and os.path.exists(musica) else ""
+
+
 def genera(archivio=None, copione_file=None):
     os.makedirs(cfg.PODCAST_DIR, exist_ok=True)
     esito = {"ok": False, "avvisi": []}
@@ -1313,6 +1346,8 @@ def genera(archivio=None, copione_file=None):
                         "-filter_complex", filtro, "-map", "[out]",
                         "-ar", "44100", "-ac", "1", "-b:a", "128k", "-metadata", titolo, mp3],
                        check=True)
+        if aggiungi_tappeto(mp3, getattr(cfg, "PODCAST_MUSICA", None), getattr(cfg, "PODCAST_MUSICA_DB", -24)):
+            log.info(f"Audio: tappeto musicale {cfg.PODCAST_MUSICA} sotto la voce")
         durata = off_ini + durata_voce / atempo + coda
         if durata > cfg.PODCAST_DURATA_MAX + 1:
             esito["avvisi"].append(f"durata {durata:.0f}s oltre il limite anche accelerando")
@@ -1421,6 +1456,8 @@ def pubblica():
         messaggio_video = cfg.PODCAST_FB_TESTA_ELENCO.format(n=p["totale"]) + p["message_elenco"]
     else:
         messaggio_video = cfg.PODCAST_FB_TESTA.format(n=p["totale"]) + p["message"]
+    if credito_musica():
+        messaggio_video += "\n\n" + credito_musica()
     titolo = cfg.PODCAST_FB_TITOLO.format(**wl)
 
     quando = datetime.fromisoformat(p["quando"])

@@ -121,6 +121,8 @@ FB_REEL = True
 FB_REEL_INVITO = ""
 IG_REEL_PODCAST = True
 IG_MUSICA       = "musica/sottofondo.mp3"
+# Credito della musica dei Reel, in fondo alla didascalia (solo se il file IG_MUSICA esiste).
+IG_MUSICA_CREDITO = "Musica: «Soft Corporate» di Yuri Megis (CC BY 4.0, freemusicarchive.org)"
 # Invito scritto in testa alle locandine dei corsi nei Reel (Instagram, Facebook, X); il carosello non cambia.
 # Vuoto = nessuna scritta. Sotto l'invito: REEL_INVITO_SOTTO.
 REEL_INVITO_LOCANDINA = ""
@@ -266,6 +268,10 @@ PODCAST_PAROLE_MAX = 210
 PODCAST_APERTURA_MAX_PAROLE = 16
 # Sottotitoli nel video (testo del copione con i tempi delle parole di Whisper) e sigla.
 PODCAST_SOTTOTITOLI = True
+# Tappeto musicale sotto la voce del podcast (solo se il file esiste), PODCAST_MUSICA_DB LU sotto la voce.
+PODCAST_MUSICA = "musica/podcast.mp3"
+PODCAST_MUSICA_DB = -24
+PODCAST_MUSICA_CREDITO = "Musica: «The Distant Sun» di Scott Buckley (CC BY 4.0, www.scottbuckley.com.au)"
 PODCAST_SIGLA = True
 PODCAST_SIGLA_DB = -6      # loudness della sigla rispetto alla voce (LUFS): resta sotto, senza sparire
 

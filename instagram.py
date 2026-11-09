@@ -827,12 +827,23 @@ def diapositive_reel(file, voci, cfg, cartella):
     return risultato
 
 
+def con_credito_musica(didascalia, cfg, chiave_file="IG_MUSICA", chiave_credito="IG_MUSICA_CREDITO"):
+    """La didascalia con in fondo il credito della musica (licenze CC BY: l'autore va citato), se il
+    file della musica esiste e il credito e' impostato; altrimenti la didascalia com'e'."""
+    musica = getattr(cfg, chiave_file, None)
+    credito = (getattr(cfg, chiave_credito, "") or "").strip()
+    if not credito or not musica or not os.path.exists(musica):
+        return didascalia
+    return f"{(didascalia or '').rstrip()}\n\n{credito}"
+
+
 def _reel_schede(file, tipi, parole, didascalia, cfg, dry_run):
     """Reel con le stesse diapositive del carosello. Mai eccezioni. Restituisce id, 'dry-run' o None."""
     try:
         if not getattr(cfg, "IG_REEL_SCHEDE", True):
             return None
         dest = os.path.join(cfg.IG_DIR, "reel-schede.mp4")
+        didascalia = con_credito_musica(didascalia, cfg)
         crea_reel(file, durate_reel(tipi, parole), dest, getattr(cfg, "COLOR_DARK", "#1a1a1a"),
                   getattr(cfg, "IG_MUSICA", None))
         mb = os.path.getsize(dest) / 1e6
