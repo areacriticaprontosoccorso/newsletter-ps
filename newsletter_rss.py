@@ -1339,17 +1339,17 @@ def genera_immagini(articoli):
 
 
 def _podcast_per_instagram():
-    """(mp4, sezioni) del podcast di questa corsa, dall'esito della generazione; (None, None) se
-    il podcast non c'e' o non e' riuscito."""
+    """(mp4, sezioni, saluti) del podcast di questa corsa, dall'esito della generazione;
+    (None, None, None) se il podcast non c'e' o non e' riuscito."""
     try:
         with open(cfg.PODCAST_ESITO, encoding="utf-8") as f:
             esito = json.load(f)
         mp4 = esito.get("mp4")
         if esito.get("ok") and mp4 and os.path.exists(mp4):
-            return mp4, esito.get("sezioni")
+            return mp4, esito.get("sezioni"), esito.get("saluti")
     except (OSError, ValueError):
         pass
-    return None, None
+    return None, None, None
 
 
 def pubblica_instagram(articoli, immagini, wl, dry_run=False):
@@ -1377,13 +1377,14 @@ def pubblica_instagram(articoli, immagini, wl, dry_run=False):
             [a.get("titolo_it") or a["titolo"] for a in articoli], corsi_ig,
             cfg.IG_CHIUSURA, cfg.IG_HASHTAG, data_leggibile=avvisi.data_leggibile)
         post = instagram.pubblica(voci, didascalia, cfg, dry_run=dry_run, parole=parole)
-        mp4, sezioni = _podcast_per_instagram()
+        mp4, sezioni, saluti = _podcast_per_instagram()
         didascalia_podcast = instagram.componi_didascalia(
             cfg.IG_PODCAST_INTESTAZIONE.format(settimana=wl["settimana"], anno=wl["anno"]),
             [], None, cfg.IG_CHIUSURA, cfg.IG_HASHTAG)
         didascalia_podcast = instagram.con_credito_musica(didascalia_podcast, cfg, "PODCAST_MUSICA",
                                                           "PODCAST_MUSICA_CREDITO")
-        instagram.pubblica_reel_podcast(mp4, sezioni, didascalia_podcast, cfg, dry_run=dry_run)
+        instagram.pubblica_reel_podcast(mp4, sezioni, didascalia_podcast, cfg, dry_run=dry_run,
+                                        saluti=saluti)
         return post
     except Exception as e:
         log.error(f"Instagram non pubblicato: {e}")

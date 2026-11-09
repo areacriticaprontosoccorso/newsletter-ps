@@ -210,6 +210,25 @@ class Video(unittest.TestCase):
         self.assertAlmostEqual(dur, 10.0, delta=0.2)      # l'estratto, senza la chiusura
         self.assertAlmostEqual(float(durata(dest)), 10.0 + ig.REEL_LOGHI_S, delta=0.4)
 
+    def test_estratto_podcast_con_i_saluti_sui_loghi(self):
+        src = os.path.join(self.d, "pod.mp4")
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i",
+                        "color=c=blue:s=1080x1350:r=5:d=70", "-f", "lavfi", "-i",
+                        "sine=frequency=300:duration=70", "-c:v", "libx264", "-preset", "ultrafast",
+                        "-c:a", "aac", "-shortest", src], check=True)
+        sezioni = [[0, 10], [10, 50], [50, 60], [60, 70]]
+        dest, dur = ig.crea_estratto_podcast(src, os.path.join(self.d, "e.mp4"), sezioni, self.f[0],
+                                             saluti=[62.0, 68.0])
+        self.assertAlmostEqual(dur, 60.0, delta=0.2)             # taglio a fine sezione, prima dei saluti
+        self.assertAlmostEqual(float(durata(dest)), 60.0 + 6.3, delta=0.4)   # loghi lunghi quanto i saluti
+
+    def test_coda_saluti_e_taglio_con_massimo(self):
+        self.assertEqual(ig.coda_saluti([100.0, 108.5]), (100.0, 8.5))
+        self.assertIsNone(ig.coda_saluti(None))
+        self.assertIsNone(ig.coda_saluti([100.0, 150.0]))        # troppo lunghi: non plausibili
+        self.assertEqual(ig.punto_di_taglio([[0, 16], [16, 62], [62, 84], [84, 110]], massimo=80), 62)
+        self.assertEqual(ig.punto_di_taglio(None, massimo=60), 60)
+
 
 class RiprovaReel(unittest.TestCase):
     """Se Instagram non riesce a elaborare il video si riprova una volta; la pubblicazione mai."""

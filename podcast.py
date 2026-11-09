@@ -1378,6 +1378,12 @@ def genera(archivio=None, copione_file=None):
         _, con_sottotitoli = genera_video(mp3, sezioni, immagini, copertina, mp4,
                                           sottotitoli=ass, locandine=locandine, inizio_corsi=t_corsi)
         esito["sottotitoli"] = con_sottotitoli
+        # Per il Reel del podcast: da dove partono i saluti finali (dall'invito ai corsi, se c'e').
+        t_saluti = t_corsi
+        if t_saluti is None and tempi_parole and len(tempi_parole) >= n_saluti > 0:
+            t_saluti = mappa(tempi_parole[len(tempi_parole) - n_saluti][1])
+        if t_saluti is not None:
+            esito["saluti"] = [round(t_saluti, 2), round(durata, 2)]
         log.info(f"Video: {mp4} ({os.path.getsize(mp4) / 1e6:.1f} MB)")
 
         for f in ("podcast_voce.wav", "sigla_ini.wav", "sigla_fin.wav"):
