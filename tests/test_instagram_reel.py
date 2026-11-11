@@ -231,7 +231,7 @@ class Video(unittest.TestCase):
 
 
 class RiprovaReel(unittest.TestCase):
-    """Se Instagram non riesce a elaborare il video si riprova una volta; la pubblicazione mai."""
+    """Se Instagram non riesce a elaborare il video si riprova (tre tentativi); la pubblicazione mai."""
 
     def esegui(self, esiti_carico, publish_ok=True):
         chiamate = []
@@ -263,12 +263,19 @@ class RiprovaReel(unittest.TestCase):
         self.assertEqual(sum(c == "IG/media_publish" for c in ch), 1)   # una sola pubblicazione
         sleep.assert_any_call(ig.PAUSA_RIPROVA_S)
 
-    def test_due_errori_di_elaborazione_si_rinuncia(self):
+    def test_tre_errori_di_elaborazione_si_rinuncia(self):
         err = "HTTP 400: ProcessingFailedError"
-        r, ch, _ = self.esegui([err, err])
+        r, ch, sleep = self.esegui([err, err, err])
         self.assertIsNone(r)
-        self.assertEqual(sum(c == "IG/media" for c in ch), 2)
+        self.assertEqual(sum(c == "IG/media" for c in ch), 3)
         self.assertNotIn("IG/media_publish", ch)
+        self.assertEqual([c[0][0] for c in sleep.call_args_list], list(ig.PAUSE_RIPROVA_S))
+
+    def test_due_errori_poi_riesce(self):
+        err = "HTTP 400: ProcessingFailedError"
+        r, ch, _ = self.esegui([err, err, None])
+        self.assertEqual(r, "REEL")
+        self.assertEqual(sum(c == "IG/media_publish" for c in ch), 1)
 
     def test_altri_errori_non_si_riprovano(self):
         r, ch, _ = self.esegui(["HTTP 400: token scaduto"])
@@ -284,6 +291,67 @@ class RiprovaReel(unittest.TestCase):
         with self.assertLogs("instagram", level="ERROR") as lg:
             self.esegui(["HTTP 400: token scaduto"])
         self.assertIn("caricamento del video", lg.output[0])
+
+
+class NonAncoraPronto(unittest.TestCase):
+    """«Media ID is not available» (2207027) con il contenitore gia' FINISHED: si riprova a pubblicare."""
+    ERR = 'HTTP 400: {"error":{"message":"Media ID is not available","code":9007,"error_subcode":2207027}}'
+
+    def finto(self, errori_publish):
+        self.chiamate = []
+        errori = list(errori_publish)
+
+        def chiama(metodo, url, campi, file_path=None, timeout=60):
+            self.chiamate.append((url.split("/v21.0/")[-1], dict(campi)))
+            if url.endswith("/media"):
+                return {"id": "C"}
+            if url.endswith("/media_publish"):
+                if errori:
+                    raise RuntimeError(errori.pop(0))
+                return {"id": "POST"}
+            if "fields" in campi and campi["fields"] == "source":
+                return {"source": "https://video.example/fb.mp4"}
+            return {"status_code": "FINISHED"}
+        return chiama
+
+    def test_carosello_riprova_e_pubblica_una_volta(self):
+        with mock.patch.object(ig, "_chiama", self.finto([self.ERR, self.ERR])), \
+             mock.patch.object(ig, "url_pubblico", return_value="https://x/y.jpg"), \
+             mock.patch.object(ig.time, "sleep") as sleep:
+            r = ig.pubblica_carosello(["a.jpg", "b.jpg"], "d", "IG", "PG", "TOK")
+        self.assertEqual(r, "POST")
+        self.assertEqual(sum(c[0] == "IG/media_publish" for c in self.chiamate), 3)
+        sleep.assert_any_call(ig.PAUSA_NON_PRONTO_S)
+
+    def test_sempre_non_pronto_si_rinuncia(self):
+        with mock.patch.object(ig, "_chiama", self.finto([self.ERR] * 9)), \
+             mock.patch.object(ig, "url_pubblico", return_value="https://x/y.jpg"), \
+             mock.patch.object(ig.time, "sleep"):
+            self.assertIsNone(ig.pubblica_carosello(["a.jpg"], "d", "IG", "PG", "TOK"))
+        self.assertEqual(sum(c[0] == "IG/media_publish" for c in self.chiamate), ig.TENTATIVI_PUBBLICAZIONE)
+
+    def test_altro_errore_di_pubblicazione_non_si_ripete(self):
+        with mock.patch.object(ig, "_chiama", self.finto(["HTTP 500"])), \
+             mock.patch.object(ig, "url_pubblico", return_value="https://x/y.jpg"), \
+             mock.patch.object(ig.time, "sleep"):
+            self.assertIsNone(ig.pubblica_carosello(["a.jpg"], "d", "IG", "PG", "TOK"))
+        self.assertEqual(sum(c[0] == "IG/media_publish" for c in self.chiamate), 1)
+
+    def test_reel_di_riserva_dal_video_di_facebook(self):
+        class C:
+            FB_PAGE_TOKEN, IG_PAGE_TOKEN, IG_USER_ID, FB_API_VERSION = "FBT", "TOK", "IG", "v21.0"
+        with mock.patch.object(ig, "_chiama", self.finto([])), \
+             mock.patch.object(ig, "_carica_video") as cv, mock.patch.object(ig.time, "sleep"):
+            r = ig._reel_instagram_da_facebook("VID", "Ciao", C)
+        self.assertEqual(r, "POST")
+        cv.assert_not_called()                                   # nessun caricamento: lo scarica Instagram
+        campi = next(c[1] for c in self.chiamate if c[0] == "IG/media")
+        self.assertEqual(campi["video_url"], "https://video.example/fb.mp4")
+        self.assertNotIn("upload_type", campi)
+
+    def test_riserva_senza_video_facebook(self):
+        self.assertIsNone(ig._reel_instagram_da_facebook(None, "x", object()))
+        self.assertIsNone(ig._reel_instagram_da_facebook("dry-run", "x", object()))
 
 
 class ApiReel(unittest.TestCase):

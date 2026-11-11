@@ -594,6 +594,33 @@ def _attendi(contenitore, token, versione, attesa_max=ATTESA_MAX_S):
     raise RuntimeError(f"Instagram non ha finito di elaborare entro {attesa_max} s (stato: {stato or '?'})")
 
 
+PAUSA_NON_PRONTO_S = 20
+TENTATIVI_PUBBLICAZIONE = 4
+
+
+def _non_ancora_pronto(e):
+    """Instagram dice che il contenuto non e' ancora pronto (codice 9007 / 2207027): capita anche
+    con il contenitore gia' FINISHED. Il post NON e' stato creato: si puo' riprovare senza doppioni."""
+    t = str(e)
+    return "2207027" in t or "Media ID is not available" in t
+
+
+def _pubblica_contenitore(base, contenitore, token):
+    """media_publish; se Instagram risponde «non ancora pronto» aspetta e riprova (fino a
+    TENTATIVI_PUBBLICAZIONE volte). Ogni altro errore si solleva subito: mai ripetere una
+    pubblicazione che potrebbe essere riuscita."""
+    for tentativo in range(1, TENTATIVI_PUBBLICAZIONE + 1):
+        try:
+            return _chiama("POST", f"{base}/media_publish",
+                           {"creation_id": contenitore, "access_token": token})["id"]
+        except Exception as e:
+            if tentativo == TENTATIVI_PUBBLICAZIONE or not _non_ancora_pronto(e):
+                raise
+            log.warning(f"Instagram: contenuto non ancora pronto - tentativo {tentativo}, "
+                        f"riprovo tra {PAUSA_NON_PRONTO_S} s")
+            time.sleep(PAUSA_NON_PRONTO_S)
+
+
 def pubblica_carosello(file_diapositive, didascalia, ig_user_id, page_id, token, versione="v21.0"):
     """Pubblica le diapositive: con una sola, un post con immagine; con due o piu', un carosello.
     Restituisce l'id del post, o None se qualcosa non va (l'errore resta nel log)."""
@@ -618,8 +645,7 @@ def pubblica_carosello(file_diapositive, didascalia, ig_user_id, page_id, token,
                         {"media_type": "CAROUSEL", "children": ",".join(figli),
                          "caption": didascalia, "access_token": token})["id"]
         _attendi(c, token, versione)
-        post = _chiama("POST", f"{base}/media_publish",
-                       {"creation_id": c, "access_token": token})["id"]
+        post = _pubblica_contenitore(base, c, token)
         log.info(f"Instagram: pubblicato ({len(urls)} diapositive) -> {post}")
         return post
     except Exception as e:
@@ -647,7 +673,8 @@ def _carica_video(contenitore, percorso, token, versione, url=None):
     return esito
 
 
-PAUSA_RIPROVA_S = 30
+PAUSE_RIPROVA_S = (30, 90)        # pause prima del secondo e del terzo tentativo
+PAUSA_RIPROVA_S = PAUSE_RIPROVA_S[0]
 
 
 def _errore_di_elaborazione(e):
@@ -655,36 +682,63 @@ def _errore_di_elaborazione(e):
     return any(k in str(e) for k in ("ProcessingFailed", "Request processing failed", "rifiutato il contenuto"))
 
 
-def pubblica_reel(video, didascalia, ig_user_id, token, versione="v21.0"):
+def pubblica_reel(video, didascalia, ig_user_id, token, versione="v21.0", video_url=None):
     """Pubblica un Reel. Restituisce l'id del post, o None se qualcosa non va (errore nel log).
-    Se Instagram non riesce a elaborare il video, riprova una volta con un contenitore nuovo (non
-    c'e' ancora nessun post, quindi niente doppioni); la pubblicazione non si ripete mai."""
+    Se Instagram non riesce a elaborare il video, riprova (tre tentativi in tutto) con un
+    contenitore nuovo: non c'e' ancora nessun post, quindi niente doppioni. La pubblicazione si
+    ripete solo se Instagram dice «non ancora pronto».
+    Con `video_url` Instagram scarica il video da quell'indirizzo pubblico invece di riceverlo
+    da qui: e' la strada di riserva quando il caricamento diretto fallisce."""
     base = f"https://graph.facebook.com/{versione}/{ig_user_id}"
     c, fase = None, ""
-    for tentativo in (1, 2):
+    tentativi = len(PAUSE_RIPROVA_S) + 1
+    for tentativo in range(1, tentativi + 1):
         try:
             fase = "creazione del contenitore"
-            c = _chiama("POST", f"{base}/media",
-                        {"media_type": "REELS", "upload_type": "resumable", "share_to_feed": "true",
-                         "caption": taglia_didascalia(didascalia), "access_token": token})["id"]
-            fase = "caricamento del video"
-            _carica_video(c, video, token, versione)
+            campi = {"media_type": "REELS", "share_to_feed": "true",
+                     "caption": taglia_didascalia(didascalia), "access_token": token}
+            campi.update({"video_url": video_url} if video_url else {"upload_type": "resumable"})
+            c = _chiama("POST", f"{base}/media", campi)["id"]
+            if not video_url:
+                fase = "caricamento del video"
+                _carica_video(c, video, token, versione)
             fase = "elaborazione"
             _attendi(c, token, versione, attesa_max=ATTESA_REEL_S)
             break
         except Exception as e:
-            if tentativo == 1 and _errore_di_elaborazione(e):
-                log.warning(f"Instagram: Reel, {fase} non riuscita ({e}) - riprovo tra {PAUSA_RIPROVA_S} s")
-                time.sleep(PAUSA_RIPROVA_S)
+            if tentativo < tentativi and _errore_di_elaborazione(e):
+                pausa = PAUSE_RIPROVA_S[tentativo - 1]
+                log.warning(f"Instagram: Reel, {fase} non riuscita ({e}) - tentativo {tentativo}, "
+                            f"riprovo tra {pausa} s")
+                time.sleep(pausa)
                 continue
             log.error(f"Instagram: Reel non pubblicato ({fase}: {e})")
             return None
     try:
-        post = _chiama("POST", f"{base}/media_publish", {"creation_id": c, "access_token": token})["id"]
+        post = _pubblica_contenitore(base, c, token)
         log.info(f"Instagram: Reel pubblicato -> {post}")
         return post
     except Exception as e:
         log.error(f"Instagram: Reel non pubblicato (pubblicazione: {e})")
+        return None
+
+
+def _reel_instagram_da_facebook(video_fb, didascalia, cfg):
+    """Strada di riserva: se il Reel non e' entrato su Instagram ma e' uscito su Facebook, si chiede a
+    Instagram di prenderlo dall'indirizzo del video di Facebook. Mai eccezioni. Id o None."""
+    try:
+        if not video_fb or video_fb == "dry-run":
+            return None
+        versione = getattr(cfg, "FB_API_VERSION", "v21.0")
+        url = _chiama("GET", f"https://graph.facebook.com/{versione}/{video_fb}",
+                      {"fields": "source", "access_token": cfg.FB_PAGE_TOKEN}).get("source")
+        if not url:
+            log.warning("Instagram: Reel non recuperabile da Facebook (indirizzo del video non disponibile)")
+            return None
+        log.info("Instagram: riprovo il Reel prendendo il video da Facebook")
+        return pubblica_reel(None, didascalia, cfg.IG_USER_ID, token_instagram(cfg), versione, video_url=url)
+    except Exception as e:
+        log.error(f"Instagram: Reel non pubblicato (dal video di Facebook: {e})")
         return None
 
 
@@ -880,7 +934,8 @@ def _reel_schede(file, tipi, parole, didascalia, cfg, dry_run):
         log.info(f"Instagram: Reel delle schede pronto ({mb:.1f} MB)")
         ig = pubblica_reel(dest, didascalia, cfg.IG_USER_ID, token_instagram(cfg),
                            getattr(cfg, "FB_API_VERSION", "v21.0"))
-        _reel_facebook(dest, didascalia, cfg, dry_run, "schede")
+        fb = _reel_facebook(dest, didascalia, cfg, dry_run, "schede")
+        ig = ig or _reel_instagram_da_facebook(fb, didascalia, cfg)
         _reel_x(dest, didascalia, cfg, dry_run)
         return ig
     except Exception as e:
@@ -956,7 +1011,8 @@ def pubblica_reel_podcast(mp4, sezioni, didascalia, cfg, dry_run=False, saluti=N
         log.info(f"Instagram: Reel del podcast pronto ({durata:.0f} s, {mb:.1f} MB)")
         ig = pubblica_reel(dest, didascalia, cfg.IG_USER_ID, token_instagram(cfg),
                            getattr(cfg, "FB_API_VERSION", "v21.0"))
-        _reel_facebook(dest, didascalia, cfg, dry_run, "podcast", ai=True)    # la voce e' sintetica
+        fb = _reel_facebook(dest, didascalia, cfg, dry_run, "podcast", ai=True)    # la voce e' sintetica
+        ig = ig or _reel_instagram_da_facebook(fb, didascalia, cfg)
         return ig
     except Exception as e:
         log.error(f"Instagram: Reel del podcast non creato ({e})")
