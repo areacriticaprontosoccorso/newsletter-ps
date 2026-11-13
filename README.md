@@ -202,6 +202,8 @@ lunghezza del titolo. Il codice è `instagram.py` (`dati_scheda`, `html_scheda`,
 
 **Musica.** Il Reel delle schede ha la musica se nel repo c'è `musica/sottofondo.mp3` (`IG_MUSICA`); allora in fondo alla didascalia del Reel va il credito `IG_MUSICA_CREDITO` (licenza CC BY: l'autore va citato). Senza il file il Reel resta muto e senza credito. Il podcast ha un tappeto musicale sotto la voce se c'è `musica/podcast.mp3` (`PODCAST_MUSICA`), `PODCAST_MUSICA_DB` = −24 LU sotto la voce, in ciclo, con dissolvenze; il credito `PODCAST_MUSICA_CREDITO` va nella descrizione del video e del Reel del podcast.
 
+**Controllo della voce (Gemini).** Se Gemini legge ad alta voce le note di regia (`PODCAST_GEMINI_STILE`), il blocco si rigenera senza note; se succede in tutti i tentativi, o se il parlato complessivo è troppo diverso dal copione (punteggio Whisper sotto `PODCAST_SOGLIA_MINIMA` = 0,75), la voce si scarta: EM passa alla voce di riserva (Chatterbox). Prima della normalizzazione la voce passa da un filtro passa-alto e da una riduzione del rumore (`PODCAST_PULIZIA`).
+
 **Reel del podcast: saluti sui loghi.** L'estratto si taglia a fine sezione e poi, sopra i loghi, si sentono i saluti finali del podcast (invito ai corsi se c'è, «Alla prossima», sigla): i loghi durano quanto i saluti e l'estratto si accorcia di conseguenza, così il Reel resta entro 90 s. I tempi vengono da `saluti` nell'esito del podcast; se mancano, restano i 3 s di loghi in silenzio.
 
 **Reel delle schede.** Subito dopo il carosello esce un Reel 9:16 con le stesse diapositive, una dopo
