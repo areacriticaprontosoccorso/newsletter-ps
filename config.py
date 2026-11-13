@@ -280,6 +280,11 @@ PODCAST_SIGLA_DB = -6      # loudness della sigla rispetto alla voce (LUFS): res
 # la migliore).
 PODCAST_SOGLIA_WHISPER = 0.82
 PODCAST_TENTATIVI      = 3
+# Sotto questo punteggio complessivo (o se Gemini legge le note di regia) la voce si scarta:
+# EM passa alla voce di riserva, NIV manda la mail senza podcast (con avviso).
+PODCAST_SOGLIA_MINIMA  = 0.75
+# Pulizia della voce prima della normalizzazione (filtro passa-alto e riduzione del rumore).
+PODCAST_PULIZIA        = True
 PODCAST_WHISPER_MODELLO = os.environ.get("PODCAST_WHISPER", "small")
 
 # Pronuncia: sostituzioni applicate SOLO al testo dato alla sintesi vocale.

@@ -377,6 +377,19 @@ def _norm(t):
     return re.sub(r"\s+", " ", t).strip()
 
 
+def regia_letta(sentito, atteso, note=None):
+    """True se nel parlato ci sono pezzi delle note di regia (PODCAST_GEMINI_STILE) che il copione non
+    ha: Gemini a volte legge ad alta voce anche le istruzioni. Conta le sequenze di 3 parole delle
+    note sentite e assenti dal copione; ne bastano 2."""
+    note = _norm(note if note is not None else getattr(cfg, "PODCAST_GEMINI_STILE", "")).split()
+    if len(note) < 3:
+        return False
+    sentito, atteso = f" {_norm(sentito)} ", f" {_norm(atteso)} "
+    trovate = {" ".join(note[i:i + 3]) for i in range(len(note) - 2)
+               if f" {' '.join(note[i:i + 3])} " in sentito and f" {' '.join(note[i:i + 3])} " not in atteso}
+    return len(trovate) >= 2
+
+
 def _parole(t):
     return [w for w in re.split(r"[\s\-']+", re.sub(r"[^\wàèéìòù\s\-']", " ", t.lower())) if w]
 
@@ -721,8 +734,11 @@ class VoceGemini:
         """Un blocco: chiamata, taglio, verifica (fino a PODCAST_TENTATIVI volte)."""
         trascrizione = "\n\n".join(
             numeri_in_parole(re.sub(r"(?i)emergenza-urgenza", "emergenza urgenza", v)) for v in sez_vis)
-        prompt = (f"### NOTE DI REGIA\n{cfg.PODCAST_GEMINI_STILE}\n\n"
-                  f"#### TRASCRIZIONE\n{trascrizione}")
+        completo = (f"### NOTE DI REGIA (da NON leggere)\n{cfg.PODCAST_GEMINI_STILE}\n\n"
+                    f"#### TRASCRIZIONE (leggi ad alta voce SOLO questo testo)\n{trascrizione}")
+        # Se Gemini ha letto le note di regia, i tentativi successivi vanno senza note.
+        breve = f"Leggi ad alta voce in italiano, con tono professionale e naturale:\n\n{trascrizione}"
+        prompt = completo
         migliore = None
         for t in range(cfg.PODCAST_TENTATIVI):
             a = self.rifila(self._chiama(prompt, modello)).astype(self.np.float32)
@@ -730,6 +746,10 @@ class VoceGemini:
             a, parole = self.taglia_dopo_ultima_parola(a, parole)
             sentito = "".join(w for w, _, _ in parole)   # le parole hanno già lo spazio iniziale
             punti = difflib.SequenceMatcher(None, _norm(" ".join(sez_vis)), _norm(sentito)).ratio()
+            if regia_letta(sentito, " ".join(sez_vis)):
+                log.warning(f"    blocco ({len(sez_vis)} sezioni), tentativo {t + 1}: Gemini ha letto "
+                            "le note di regia - riprovo senza note")
+                punti, prompt = 0.0, breve
             log.info(f"    blocco ({len(sez_vis)} sezioni), tentativo {t + 1}: "
                      f"{len(a) / self.sr:.1f}s, punteggio {punti:.2f}")
             if migliore is None or punti > migliore[1]:
@@ -788,6 +808,13 @@ class VoceGemini:
             verifica.append({"frase": vis[k], "sentito": sent.strip(), "punteggio": round(pk, 3)})
         sentito = "".join(w for w, _, _ in parole_tot)
         punti = difflib.SequenceMatcher(None, _norm(" ".join(vis)), _norm(sentito)).ratio()
+        # Una voce che dice altro dal copione non si pubblica: meglio niente podcast (o, in EM, la
+        # voce di riserva) che istruzioni lette ad alta voce o pezzi mancanti.
+        if regia_letta(sentito, " ".join(vis)):
+            raise RuntimeError("Gemini ha letto le note di regia in tutti i tentativi")
+        if punti < cfg.PODCAST_SOGLIA_MINIMA:
+            raise RuntimeError(f"voce troppo diversa dal copione (punteggio {punti:.2f}, "
+                               f"minimo {cfg.PODCAST_SOGLIA_MINIMA})")
         return audio, confini, verifica, punti, parole_tot
 
 
@@ -1330,7 +1357,10 @@ def genera(archivio=None, copione_file=None):
         mp3 = os.path.join(cfg.PODCAST_DIR, f"podcast-s{str(wl['settimana']).zfill(2)}-{wl['anno']}.mp3")
         titolo = (f"title={getattr(cfg, 'PODCAST_TITOLO', 'EM Weekly Digest')} — podcast settimana "
                   f"{wl['settimana']}/{wl['anno']}")
-        voce_norm = f"atempo={atempo:.4f},loudnorm=I=-16:TP=-1.5:LRA=11,aresample=44100"
+        # Pulizia della voce: via i rumori di fondo (rombo sotto 70 Hz, fruscio e ronzii nelle pause).
+        pulizia = ("highpass=f=70,afftdn=nr=12:nf=-50:tn=1,"
+                   if getattr(cfg, "PODCAST_PULIZIA", True) else "")
+        voce_norm = f"{pulizia}atempo={atempo:.4f},loudnorm=I=-16:TP=-1.5:LRA=11,aresample=44100"
         if cfg.PODCAST_SIGLA:
             f_ini = os.path.join(cfg.PODCAST_DIR, "sigla_ini.wav")
             f_fin = os.path.join(cfg.PODCAST_DIR, "sigla_fin.wav")
