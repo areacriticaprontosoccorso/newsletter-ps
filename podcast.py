@@ -377,6 +377,59 @@ def _norm(t):
     return re.sub(r"\s+", " ", t).strip()
 
 
+def silenzia_rumori(a, sr, soglia_piatto=0.2, min_s=0.06, margine_s=0.08):
+    """Toglie i lampi di rumore (soffi a banda larga, forti come la voce, che Gemini a volte mette fra
+    un blocco e l'altro): tratti di almeno `min_s` secondi con spettro piatto come un rumore bianco
+    (piattezza > soglia_piatto fra 100 Hz e 12 kHz) e volume vicino a quello della voce. La voce,
+    anche le «s», ha spettro meno piatto o e' piu' debole. Il tratto (piu' un margine) diventa
+    silenzio, con brevi dissolvenze; la durata non cambia. Restituisce (audio, [(inizio, durata)])."""
+    import numpy as np
+    w = int(0.02 * sr)
+    n = len(a) // w
+    if n < 10:
+        return a, []
+    X = a[:n * w].reshape(n, w).astype(np.float64)
+    S = np.abs(np.fft.rfft(X * np.hanning(w), axis=1)) ** 2 + 1e-12
+    f = np.fft.rfftfreq(w, 1 / sr)
+    b = (f > 100) & (f < 12000)
+    piatto = np.exp(np.log(S[:, b]).mean(1)) / S[:, b].mean(1)
+    rms = 20 * np.log10(np.sqrt((X ** 2).mean(1)) + 1e-9)
+    voce = rms[rms > -40]
+    if not len(voce):
+        return a, []
+    sospetti = (piatto > soglia_piatto) & (rms > np.median(voce) - 6)
+    out, trovati, i = a.copy(), [], 0
+    m = int(margine_s / 0.02)
+    while i < n:
+        if not sospetti[i]:
+            i += 1
+            continue
+        j = i
+        while j < n and sospetti[j]:
+            j += 1
+        if (j - i) * 0.02 >= min_s:
+            i0, i1 = max(0, (i - m) * w), min(len(a), (j + m) * w)
+            sf_ = min(int(0.01 * sr), (i1 - i0) // 4)
+            out[i0 + sf_:i1 - sf_] = 0
+            out[i0:i0 + sf_] *= np.linspace(1, 0, sf_, dtype=out.dtype)
+            out[i1 - sf_:i1] *= np.linspace(0, 1, sf_, dtype=out.dtype)
+            trovati.append((round(i0 / sr, 2), round((i1 - i0) / sr, 2)))
+        i = j
+    # Schiocchi isolati: al massimo 40 ms di suono forte fra due silenzi (le giunture dei blocchi).
+    e = 20 * np.log10(np.sqrt((out[:n * w].reshape(n, w).astype(np.float64) ** 2).mean(1)) + 1e-9)
+    k = 3
+    while k < n - 3:
+        for lung in (1, 2):
+            if k + lung + 3 <= n and e[k:k + lung].max() > -35 and e[k - 3:k].max() < -50 \
+                    and e[k + lung:k + lung + 3].max() < -50:
+                out[k * w:(k + lung) * w] = 0
+                trovati.append((round(k * w / sr, 2), round(lung * w / sr, 2)))
+                k += lung
+                break
+        k += 1
+    return out, sorted(trovati)
+
+
 def regia_letta(sentito, atteso, note=None):
     """True se nel parlato ci sono pezzi delle note di regia (PODCAST_GEMINI_STILE) che il copione non
     ha: Gemini a volte legge ad alta voce anche le istruzioni. Conta le sequenze di 3 parole delle
@@ -1347,6 +1400,10 @@ def genera(archivio=None, copione_file=None):
         # alzerebbe proprio la sigla, che è la parte più bassa.
         off_ini = len(sigla_ini) / sr
         voce_raw = np.concatenate(traccia[1:])
+        voce_raw, rumori = silenzia_rumori(voce_raw, sr)
+        if rumori:
+            log.info(f"Audio: {len(rumori)} lampi di rumore tolti dalla voce "
+                     f"({', '.join(f'{t:.1f}s' for t, _ in rumori)})")
         wav = os.path.join(cfg.PODCAST_DIR, "podcast_voce.wav")
         sf.write(wav, voce_raw, sr)
         durata_voce = len(voce_raw) / sr
