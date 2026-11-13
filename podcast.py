@@ -860,7 +860,11 @@ class VoceGemini:
             pk = difflib.SequenceMatcher(None, _norm(vis[k]), _norm(sent)).ratio()
             verifica.append({"frase": vis[k], "sentito": sent.strip(), "punteggio": round(pk, 3)})
         sentito = "".join(w for w, _, _ in parole_tot)
-        punti = difflib.SequenceMatcher(None, _norm(" ".join(vis)), _norm(sentito)).ratio()
+        # Punteggio complessivo: media dei punteggi dei blocchi, pesata sulla lunghezza del testo.
+        # Il confronto a caratteri sull'intero copione non e' affidabile (difflib su testi lunghi:
+        # il 13/11 dava 0,27 con blocchi da 0,85-0,97).
+        pesi = [sum(len(vis[i]) for i in g) for g in gruppi]
+        punti = sum(r[1] * w for r, w in zip(risultati, pesi)) / max(1, sum(pesi))
         # Una voce che dice altro dal copione non si pubblica: meglio niente podcast (o, in EM, la
         # voce di riserva) che istruzioni lette ad alta voce o pezzi mancanti.
         if regia_letta(sentito, " ".join(vis)):

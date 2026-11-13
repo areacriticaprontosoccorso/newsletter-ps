@@ -75,5 +75,36 @@ class Rumori(unittest.TestCase):
         self.assertTrue((out == a).all())
 
 
+@unittest.skipUnless(NUMPY, "serve numpy")
+class PunteggioComplessivo(unittest.TestCase):
+    """Il punteggio complessivo e' la media pesata dei blocchi (il 13/11 il confronto sull'intero
+    copione dava 0,27 con blocchi da 0,85-0,97 e scartava un podcast buono)."""
+
+    def _voce(self, punteggi):
+        import numpy as np
+        from unittest import mock
+        v = podcast.VoceGemini.__new__(podcast.VoceGemini)
+        v.np, v.sr = np, 16000
+        sezioni = [f"Sezione numero {k} con un testo di prova abbastanza lungo." for k in range(6)]
+        gruppi = [[0, 1], [2, 3], [4, 5]]
+        v.blocchi = lambda vis: gruppi
+        risposte = iter([(np.zeros(16000, dtype=np.float32), p,
+                          [(" " + w, 0.1 * i, 0.1 * i + 0.05) for i, w in enumerate(
+                              " ".join(sezioni[g[0]:g[-1] + 1]).split())]) for p, g in zip(punteggi, gruppi)])
+        v._blocco = lambda sez, modello: next(risposte)
+        v._allinea = lambda parole, sez: [0.0] + [None] * (len(sez) - 1)
+        with mock.patch.object(podcast.cfg, "PODCAST_GEMINI_UNIFORMA", False), \
+                mock.patch.object(podcast.cfg, "PODCAST_GEMINI_MODELLI", ["m"]):
+            return v.podcast_verificato(sezioni)
+
+    def test_blocchi_buoni_podcast_buono(self):
+        _, _, _, punti, _ = self._voce([0.96, 0.97, 0.85])
+        self.assertAlmostEqual(punti, (0.96 + 0.97 + 0.85) / 3, places=2)
+
+    def test_blocchi_scarsi_podcast_scartato(self):
+        with self.assertRaises(RuntimeError):
+            self._voce([0.5, 0.6, 0.7])
+
+
 if __name__ == "__main__":
     unittest.main()
