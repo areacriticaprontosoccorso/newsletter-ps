@@ -710,6 +710,25 @@ class VoceGemini:
         b[-n:] *= self.np.linspace(1, 0, n, dtype=self.np.float32)
         return b, parole
 
+    def taglia_prima_del_testo(self, a, parole, atteso, max_parole=60):
+        """Toglie cio' che Gemini dice PRIMA del testo (istruzioni lette ad alta voce): cerca nelle
+        parole riconosciute l'inizio del testo atteso (le sue prime 3 parole, o almeno 2 su 3) e
+        taglia l'audio poco prima, con una breve dissolvenza in entrata. Restituisce (audio, parole,
+        secondi tolti)."""
+        attese = _norm(atteso).split()[:3]
+        toks = [_norm(w).strip() for w, _, _ in parole]
+        if len(attese) < 3 or not parole:
+            return a, parole, 0.0
+        for k in range(1, min(len(toks) - 2, max_parole)):
+            if sum(x == y for x, y in zip(toks[k:k + 3], attese)) >= 2 and toks[k] == attese[0]:
+                taglio = max(0.0, parole[k][1] - 0.08)
+                i = int(taglio * self.sr)
+                b = a[i:].copy()
+                n = min(len(b), int(0.03 * self.sr))
+                b[:n] *= self.np.linspace(0, 1, n, dtype=self.np.float32)
+                return b, [(w, s0 - taglio, s1 - taglio) for w, s0, s1 in parole[k:]], taglio
+        return a, parole, 0.0
+
     @staticmethod
     def _allinea(parole, sezioni):
         """Istante d'inizio di ogni sezione nell'audio, dalle parole di Whisper:
@@ -789,14 +808,19 @@ class VoceGemini:
             numeri_in_parole(re.sub(r"(?i)emergenza-urgenza", "emergenza urgenza", v)) for v in sez_vis)
         completo = (f"### NOTE DI REGIA (da NON leggere)\n{cfg.PODCAST_GEMINI_STILE}\n\n"
                     f"#### TRASCRIZIONE (leggi ad alta voce SOLO questo testo)\n{trascrizione}")
-        # Se Gemini ha letto le note di regia, i tentativi successivi vanno senza note.
-        breve = f"Leggi ad alta voce in italiano, con tono professionale e naturale:\n\n{trascrizione}"
+        # Se Gemini ha letto le note di regia, i tentativi successivi mandano solo il testo, senza
+        # alcuna istruzione (anche un'istruzione breve finisce a volte letta ad alta voce).
+        breve = trascrizione
         prompt = completo
         migliore = None
         for t in range(cfg.PODCAST_TENTATIVI):
             a = self.rifila(self._chiama(prompt, modello)).astype(self.np.float32)
             parole = self.trascrivi_parole(a)
             a, parole = self.taglia_dopo_ultima_parola(a, parole)
+            a, parole, tolti = self.taglia_prima_del_testo(a, parole, sez_vis[0])
+            if tolti:
+                log.warning(f"    blocco ({len(sez_vis)} sezioni), tentativo {t + 1}: tolti {tolti:.1f}s "
+                            "detti prima del testo (istruzioni lette?)")
             sentito = "".join(w for w, _, _ in parole)   # le parole hanno già lo spazio iniziale
             punti = difflib.SequenceMatcher(None, _norm(" ".join(sez_vis)), _norm(sentito)).ratio()
             if regia_letta(sentito, " ".join(sez_vis)):
@@ -865,6 +889,10 @@ class VoceGemini:
         # il 13/11 dava 0,27 con blocchi da 0,85-0,97).
         pesi = [sum(len(vis[i]) for i in g) for g in gruppi]
         punti = sum(r[1] * w for r, w in zip(risultati, pesi)) / max(1, sum(pesi))
+        peggiore = min(r[1] for r in risultati)
+        if peggiore < cfg.PODCAST_SOGLIA_MINIMA:       # un blocco cattivo non si nasconde nella media
+            raise RuntimeError(f"un blocco della voce e' troppo diverso dal copione (punteggio "
+                               f"{peggiore:.2f}, minimo {cfg.PODCAST_SOGLIA_MINIMA})")
         # Una voce che dice altro dal copione non si pubblica: meglio niente podcast (o, in EM, la
         # voce di riserva) che istruzioni lette ad alta voce o pezzi mancanti.
         if regia_letta(sentito, " ".join(vis)):

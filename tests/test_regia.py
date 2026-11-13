@@ -106,5 +106,43 @@ class PunteggioComplessivo(unittest.TestCase):
             self._voce([0.5, 0.6, 0.7])
 
 
+@unittest.skipUnless(NUMPY, "serve numpy")
+class TagliaPrimaDelTesto(unittest.TestCase):
+    """13/11: Gemini ha letto «Leggi ad alta voce in italiano...» prima della chiusura."""
+
+    def _v(self):
+        import numpy as np
+        v = podcast.VoceGemini.__new__(podcast.VoceGemini)
+        v.np, v.sr = np, 100
+        return v
+
+    def _parole(self, testo, t0=0.0):
+        return [(" " + w, t0 + i, t0 + i + 0.8) for i, w in enumerate(testo.split())]
+
+    def test_istruzione_iniziale_tolta(self):
+        import numpy as np
+        v = self._v()
+        parole = self._parole("Leggi ad alta voce in italiano con tono professionale. Sintesi generate con l'intelligenza")
+        a = np.ones(len(parole) * 100, dtype=np.float32)
+        b, p2, tolti = v.taglia_prima_del_testo(a, parole, "Sintesi generate con l'intelligenza artificiale.")
+        self.assertAlmostEqual(tolti, 9 - 0.08, places=2)
+        self.assertEqual(p2[0][0].strip(), "Sintesi")
+        self.assertAlmostEqual(p2[0][1], 0.08, places=2)
+        self.assertEqual(len(b), len(a) - int(tolti * 100))
+
+    def test_testo_che_inizia_subito_non_si_tocca(self):
+        import numpy as np
+        v = self._v()
+        parole = self._parole("Sintesi generate con l'intelligenza artificiale.")
+        a = np.ones(600, dtype=np.float32)
+        b, p2, tolti = v.taglia_prima_del_testo(a, parole, "Sintesi generate con l'intelligenza artificiale.")
+        self.assertEqual(tolti, 0.0)
+        self.assertIs(b, a)
+
+    def test_blocco_cattivo_non_si_nasconde_nella_media(self):
+        with self.assertRaises(RuntimeError):
+            PunteggioComplessivo._voce(self, [0.98, 0.98, 0.72])
+
+
 if __name__ == "__main__":
     unittest.main()
