@@ -434,7 +434,10 @@ def regia_letta(sentito, atteso, note=None):
     """True se nel parlato ci sono pezzi delle note di regia (PODCAST_GEMINI_STILE) che il copione non
     ha: Gemini a volte legge ad alta voce anche le istruzioni. Conta le sequenze di 3 parole delle
     note sentite e assenti dal copione; ne bastano 2."""
-    note = _norm(note if note is not None else getattr(cfg, "PODCAST_GEMINI_STILE", "")).split()
+    if note is None:     # le note e le intestazioni del prompt della voce
+        note = (getattr(cfg, "PODCAST_GEMINI_STILE", "") + " note di regia da non leggere trascrizione "
+                "leggi ad alta voce solo questo testo")
+    note = _norm(note).split()
     if len(note) < 3:
         return False
     sentito, atteso = f" {_norm(sentito)} ", f" {_norm(atteso)} "
@@ -900,6 +903,13 @@ class VoceGemini:
         if punti < cfg.PODCAST_SOGLIA_MINIMA:
             raise RuntimeError(f"voce troppo diversa dal copione (punteggio {punti:.2f}, "
                                f"minimo {cfg.PODCAST_SOGLIA_MINIMA})")
+        # Anche una sola sezione (un articolo) letta male scarta la voce. Soglia piu' bassa: i confini
+        # fra le sezioni di un blocco sono stimati dai tempi delle parole.
+        soglia_sez = getattr(cfg, "PODCAST_SOGLIA_SEZIONE", 0.65)
+        cattiva = min(verifica, key=lambda v: v["punteggio"])
+        if cattiva["punteggio"] < soglia_sez:
+            raise RuntimeError(f"sezione letta male (punteggio {cattiva['punteggio']:.2f}, minimo "
+                               f"{soglia_sez}): {cattiva['frase'][:60]}")
         return audio, confini, verifica, punti, parole_tot
 
 
@@ -1409,6 +1419,11 @@ def genera(archivio=None, copione_file=None):
                 log.info(f"  [{s}.{j}] {punti:.2f} {len(audio) / sr:4.1f}s | {testo_visibile(fr)[:70]}")
                 if punti < cfg.PODCAST_SOGLIA_WHISPER:
                     esito["avvisi"].append(f"frase sotto soglia ({punti:.2f}): {testo_visibile(fr)[:80]}")
+                if punti < cfg.PODCAST_SOGLIA_MINIMA:
+                    # Anche la voce di riserva non pubblica una frase letta male: meglio niente podcast.
+                    raise RuntimeError(f"voce di riserva: frase letta male anche dopo "
+                                       f"{cfg.PODCAST_TENTATIVI} tentativi (punteggio {punti:.2f}): "
+                                       f"{testo_visibile(fr)[:60]}")
                 if j:
                     traccia.append(np.zeros(int(0.2 * sr), dtype=np.float32))
                     cursore += int(0.2 * sr)
