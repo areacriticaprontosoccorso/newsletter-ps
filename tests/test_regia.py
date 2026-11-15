@@ -80,7 +80,7 @@ class PunteggioComplessivo(unittest.TestCase):
     """Il punteggio complessivo e' la media pesata dei blocchi (il 13/11 il confronto sull'intero
     copione dava 0,27 con blocchi da 0,85-0,97 e scartava un podcast buono)."""
 
-    def _voce(self, punteggi):
+    def _voce(self, punteggi, parole_tutte_in_testa=False):
         import numpy as np
         from unittest import mock
         v = podcast.VoceGemini.__new__(podcast.VoceGemini)
@@ -88,11 +88,15 @@ class PunteggioComplessivo(unittest.TestCase):
         sezioni = [f"Sezione numero {k} con un testo di prova abbastanza lungo." for k in range(6)]
         gruppi = [[0, 1], [2, 3], [4, 5]]
         v.blocchi = lambda vis: gruppi
-        risposte = iter([(np.zeros(16000, dtype=np.float32), p,
-                          [(" " + w, 0.1 * i, 0.1 * i + 0.05) for i, w in enumerate(
-                              " ".join(sezioni[g[0]:g[-1] + 1]).split())]) for p, g in zip(punteggi, gruppi)])
+        def blocco(p, g):
+            parole = " ".join(sezioni[g[0]:g[-1] + 1]).split()
+            # audio lungo quanto le parole (0,1 s l'una), come un blocco vero
+            return (np.zeros(int(16000 * 0.1 * len(parole)), dtype=np.float32), p,
+                    [(" " + w, 0.1 * i, 0.1 * i + 0.05) for i, w in enumerate(parole)])
+        risposte = iter([blocco(p, g) for p, g in zip(punteggi, gruppi)])
         v._blocco = lambda sez, modello: next(risposte)
-        v._allinea = lambda parole, sez: [0.0] + [None] * (len(sez) - 1)
+        v._allinea = ((lambda parole, sez: [0.0] + [0.1] * (len(sez) - 1)) if parole_tutte_in_testa
+                      else (lambda parole, sez: [0.0] + [None] * (len(sez) - 1)))
         with mock.patch.object(podcast.cfg, "PODCAST_GEMINI_UNIFORMA", False), \
                 mock.patch.object(podcast.cfg, "PODCAST_GEMINI_MODELLI", ["m"]):
             return v.podcast_verificato(sezioni)
@@ -142,6 +146,24 @@ class TagliaPrimaDelTesto(unittest.TestCase):
     def test_blocco_cattivo_non_si_nasconde_nella_media(self):
         with self.assertRaises(RuntimeError):
             PunteggioComplessivo._voce(self, [0.98, 0.98, 0.72])
+
+
+class ProtezioniEM(unittest.TestCase):
+    """Le protezioni della voce valgono anche per EM (stesso podcast.py)."""
+
+    def test_intestazioni_del_prompt_lette_riconosciute(self):
+        sentito = "Trascrizione, leggi ad alta voce solo questo testo. Benvenuti!"
+        self.assertTrue(podcast.regia_letta(sentito, "Benvenuti!"))
+
+    def test_soglia_di_sezione_configurata(self):
+        self.assertLess(cfg.PODCAST_SOGLIA_SEZIONE, cfg.PODCAST_SOGLIA_MINIMA)
+
+    @unittest.skipUnless(NUMPY, "serve numpy")
+    def test_sezione_letta_male_scarta_la_voce(self):
+        # blocchi buoni in media, ma la prima sezione di ogni blocco risulta quasi vuota
+        with self.assertRaises(RuntimeError) as c:
+            PunteggioComplessivo._voce(self, [0.9, 0.9, 0.9], parole_tutte_in_testa=True)
+        self.assertIn("sezione letta male", str(c.exception))
 
 
 if __name__ == "__main__":

@@ -283,6 +283,8 @@ PODCAST_TENTATIVI      = 3
 # Sotto questo punteggio complessivo (o se Gemini legge le note di regia) la voce si scarta:
 # EM passa alla voce di riserva, NIV manda la mail senza podcast (con avviso).
 PODCAST_SOGLIA_MINIMA  = 0.75
+# Minimo per ogni sezione (un articolo): sotto, la voce si scarta anche se la media e' buona.
+PODCAST_SOGLIA_SEZIONE = 0.65
 # Pulizia della voce prima della normalizzazione (filtro passa-alto e riduzione del rumore).
 PODCAST_PULIZIA        = True
 PODCAST_WHISPER_MODELLO = os.environ.get("PODCAST_WHISPER", "small")
