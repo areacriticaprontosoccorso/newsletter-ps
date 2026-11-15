@@ -254,7 +254,7 @@ def scrivi_copione(articoli, copione_file=None):
     )
     aggiunta, problemi = "", []
     for tentativo in range(1, 4):
-        risposta = nr.chiama_claude(prompt + aggiunta, max_tokens=3000)
+        risposta = nr.chiama_claude(prompt + aggiunta, max_tokens=8000)   # spazio anche per un eventuale ragionamento
         try:
             testi, apertura = _testi_da_risposta(risposta, articoli)
             problemi = problemi_copione(articoli, testi, apertura)

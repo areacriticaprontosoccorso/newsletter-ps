@@ -57,5 +57,22 @@ class Modello(unittest.TestCase):
         self.assertNotIn("_riprovato", secondo)
 
 
+    def test_risposta_finita_nel_ragionamento_riprova_con_piu_spazio(self):
+        solo_pensiero = Risposta(json.dumps({"content": [{"type": "thinking", "thinking": ""}],
+                                             "stop_reason": "max_tokens",
+                                             "usage": {"input_tokens": 1, "output_tokens": 3000}}).encode())
+        with mock.patch.object(nr.urllib.request, "urlopen", side_effect=[solo_pensiero, ok("copione")]) as u:
+            self.assertEqual(nr.chiama_claude("x", max_tokens=3000), "copione")
+        secondo = json.loads(u.call_args_list[1][0][0].data)
+        self.assertEqual(secondo["max_tokens"], 9000)
+        self.assertNotIn("_piu_spazio", secondo)
+
+    def test_copione_ha_spazio_per_il_ragionamento(self):
+        import podcast
+        import inspect
+        self.assertIn("max_tokens=8000", inspect.getsource(podcast.copione) if hasattr(podcast, "copione")
+                      else open(os.path.join(RADICE, "podcast.py"), encoding="utf-8").read())
+
+
 if __name__ == "__main__":
     unittest.main()
