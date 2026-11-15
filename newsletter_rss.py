@@ -716,6 +716,15 @@ def chiama_claude(prompt, max_tokens=1500, system=None, thinking=False, model=No
             # blocchi "thinking": content[0] non e' garantito essere testo).
             blocchi = data.get("content", [])
             testo = next((b.get("text", "") for b in blocchi if b.get("type") == "text"), "")
+            if (not testo and data.get("stop_reason") == "max_tokens"
+                    and any(b.get("type") == "thinking" for b in blocchi) and not corpo.get("_piu_spazio")):
+                # Il modello ha ragionato fino al limite senza scrivere la risposta (Sonnet 5.5 puo'
+                # ragionare anche con il ragionamento iniziale spento): riprovo una volta con piu' spazio.
+                corpo["max_tokens"], corpo["_piu_spazio"] = min(max(corpo["max_tokens"] * 3, 8000), 32000), True
+                log.warning(f"Anthropic API: risposta finita nel ragionamento ({uso.get('output_tokens')} token), "
+                            f"riprovo con max_tokens={corpo['max_tokens']}")
+                payload = json.dumps({k: v for k, v in corpo.items() if not k.startswith("_")}).encode("utf-8")
+                continue
             if not testo:
                 raise RuntimeError(
                     f"Nessun blocco di testo nella risposta API (stop_reason={data.get('stop_reason')}, "
