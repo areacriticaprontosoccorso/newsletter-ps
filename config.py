@@ -428,7 +428,7 @@ MAX_CANDIDATI_PROMPT = 150  # tetto di candidati inviati al filtro (protegge i t
 # Token per tipo di chiamata.
 # NB: NON reintrodurre il parametro "temperature": è deprecato per questo modello
 # e l'API risponde 400 (verificato sul run del 03/08/2026).
-MAX_TOKENS_FILTRO          = 800
+MAX_TOKENS_FILTRO          = 1600   # 800 bastava con Sonnet 5; Sonnet 5.5 usa piu' token per lo stesso testo (dry run 15/11: graduatoria troncata)
 MAX_TOKENS_SINTESI_MULTI   = 4500
 MAX_TOKENS_SINTESI_SINGOLA = 1000
 
@@ -448,7 +448,7 @@ MAX_CANDIDATI_SCREENING  = 250   # oltre, il taglio avviene per disegno (PRIORIT
 ABSTRACT_MAX_SCREENING   = 450   # compatta_abstract(): ~40% inizio + ~60% fine
 ABSTRACT_MAX_FILTRO_FINALE = 2500
 FILTRO_FINALE_THINKING   = False  # True = 2° passaggio con ragionamento (nel dry run del 12/10 ha esaurito i token e ripiegato: se lo riattivi alza MAX_TOKENS_FILTRO_FINALE a 16000)
-MAX_TOKENS_SCREENING     = 2000
+MAX_TOKENS_SCREENING     = 3000
 MAX_TOKENS_FILTRO_FINALE = 6000  # include lo spazio per il ragionamento
 
 # ── [NUOVO] Titolo tradotto ───────────────────────────────────────────────────
