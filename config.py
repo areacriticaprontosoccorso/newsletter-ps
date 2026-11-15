@@ -22,7 +22,7 @@ import json
 # CREDENZIALI E DESTINATARI (letti da variabili d'ambiente — MAI hardcoded)
 # ═══════════════════════════════════════════════════════════════════════════════
 ANTHROPIC_API_KEY  = os.environ.get("ANTHROPIC_API_KEY", "")
-ANTHROPIC_MODEL    = "claude-sonnet-5"
+ANTHROPIC_MODEL    = "claude-sonnet-5-5"   # dal 15/11/2026 (prima claude-sonnet-5, stesso prezzo)
 GMAIL_USER         = os.environ.get("GMAIL_USER", "")
 # Invio tramite OAuth2: il token completo (JSON) sta in GMAIL_TOKEN.
 GMAIL_TOKEN        = os.environ.get("GMAIL_TOKEN", "")

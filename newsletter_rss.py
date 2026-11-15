@@ -665,6 +665,13 @@ def raccogli_candidati(giorni=None):
 USO_API = {"chiamate": 0, "token_in": 0, "token_out": 0}
 
 
+def thinking_spento(modello):
+    """Il parametro che spegne il ragionamento iniziale. Sonnet 5 accetta {"type": "disabled"};
+    Sonnet 5.5 lo rifiuta (HTTP 400) e vuole {"type": "between_tools"}, che senza strumenti
+    equivale a nessun ragionamento."""
+    return {"type": "between_tools"} if "-5-5" in (modello or "") else {"type": "disabled"}
+
+
 def chiama_claude(prompt, max_tokens=1500, system=None, thinking=False, model=None):
     # NB: NON passare "temperature" e NON far terminare la conversazione con un
     # turno "assistant": questo modello rifiuta entrambi con HTTP 400 (verificato
@@ -677,9 +684,9 @@ def chiama_claude(prompt, max_tokens=1500, system=None, thinking=False, model=No
         "messages":   messaggi,
     }
     if not thinking:
-        # Sonnet 5 ha l'adaptive thinking attivo di default: lo disattiviamo,
-        # cosi' la risposta e' solo testo e max_tokens non viene speso in thinking.
-        corpo["thinking"] = {"type": "disabled"}
+        # Il ragionamento adattivo e' attivo di default: lo spegniamo, cosi' la risposta e'
+        # solo testo e max_tokens non viene speso in thinking (forma diversa per modello).
+        corpo["thinking"] = thinking_spento(corpo["model"])
     # Con thinking=True la chiave si omette: il ragionamento adattivo resta attivo e
     # max_tokens deve lasciargli spazio (MAX_TOKENS_FILTRO_FINALE).
     if system:
@@ -717,6 +724,14 @@ def chiama_claude(prompt, max_tokens=1500, system=None, thinking=False, model=No
         except urllib.error.HTTPError as e:
             body = e.read().decode("utf-8")
             ultimo_errore = f"Anthropic API errore {e.code}: {body[:400]}"
+            if e.code == 400 and "thinking" in corpo and "between_tools" in body + json.dumps(corpo["thinking"]) \
+                    and not corpo.get("_riprovato"):
+                # Forma del parametro thinking non accettata da questo modello: provo l'altra, una volta.
+                altra = {"type": "disabled"} if corpo["thinking"]["type"] == "between_tools" else {"type": "between_tools"}
+                log.warning(f"Anthropic API: thinking {corpo['thinking']} rifiutato, riprovo con {altra}")
+                corpo["thinking"], corpo["_riprovato"] = altra, True
+                payload = json.dumps({k: v for k, v in corpo.items() if not k.startswith("_")}).encode("utf-8")
+                continue
             if e.code == 429 or 500 <= e.code < 600:
                 attesa = 2 ** attempt
                 log.warning(f"{ultimo_errore} — retry tra {attesa}s ({attempt+1}/4)")

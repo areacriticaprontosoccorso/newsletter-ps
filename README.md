@@ -88,7 +88,7 @@ Tutti i parametri stanno in `config.py`. I principali:
 - `PUBTYPE_REVISIONE` → badge "revisione" (Review, Systematic Review, Guideline, Consensus…). La *Meta-Analysis* è esclusa apposta: produce stime proprie e può essere "cambia-pratica".
 - `PUBTYPE_PRIORITARI` → segnalati al filtro come indizio di qualità (RCT, Meta-Analysis, Multicenter, Fase III, Practice Guideline).
 
-**Modello** — `ANTHROPIC_MODEL = "claude-sonnet-5"`. ⚠️ Questo modello **rifiuta** il parametro `temperature` e il prefill del turno assistant (HTTP 400): non reintrodurli.
+**Modello** — `ANTHROPIC_MODEL = "claude-sonnet-5-5"` (dal 15/11/2026; prima `claude-sonnet-5`, stesso prezzo). ⚠️ **Rifiuta** `temperature` e il prefill del turno assistant (HTTP 400): non reintrodurli. Il ragionamento si spegne con `thinking: {"type": "between_tools"}`: `{"type": "disabled"}` dà HTTP 400 su Sonnet 5.5 (vale solo per Sonnet 5). `thinking_spento()` sceglie la forma giusta e, se l'API la rifiuta, `chiama_claude` riprova una volta con l'altra. NIV e POCUS restano su `claude-sonnet-5`.
 
 **Facebook** — `FB_SCHEDE` (False: le schede degli articoli non si pubblicano, sulla Pagina esce solo il video del podcast; True ripristina un post per articolo nei feriali), `FB_API_VERSION` (v21.0), `FB_UN_POST_AL_GIORNO` (True: un articolo per post, non un elenco unico), `FB_ORA` (11), `FB_MINUTO` (0), `FB_GIORNI_FERIALI` (lun–ven), `FB_FUSO` (Europe/Rome). I post vengono programmati sugli slot feriali successivi.
 
@@ -132,7 +132,7 @@ DRY_RUN=1 python podcast.py pubblica     # scrive solo post_facebook_podcast.txt
 - **ID pagina Facebook via portfolio** — l'ID pagina si ottiene interrogando l'API tramite l'ID del business portfolio, non direttamente.
 - **API Gruppi Facebook deprecata** (aprile 2024) — la pubblicazione nei gruppi è solo manuale. `post_facebook.txt` esiste anche per copiare a mano la didascalia in un gruppo.
 - **Installazione Playwright fragile** — in CI conviene `timeout-minutes` e `continue-on-error` sullo step di install per non bloccare l'invio del lunedì.
-- **`claude-sonnet-5` e `temperature`/prefill** — vedi sopra: HTTP 400 garantito.
+- **`claude-sonnet-5-5` e `temperature`/prefill, o `thinking: disabled`** — vedi sopra: HTTP 400 garantito.
 - **Podcast: quota e blocchi di Gemini** — oltre la quota il server risponde 429 (si passa al modello successivo); a volte risponde senza audio con `finishReason: SAFETY` anche su testi innocui (si riprova). Con Chatterbox invece: ~6 GB di RAM e circa 17 minuti per podcast sul runner. Oltre `PODCAST_TIMEOUT_MAIL` viene interrotto: la mail parte senza podcast e su Facebook quella settimana non esce nulla. Le dipendenze si installano **prima** di *Esegui newsletter*; se quel passo fallisce, la newsletter non tenta nemmeno il podcast.
 - **Podcast: video su Facebook** — il caricamento usa `graph-video.facebook.com` con lo stesso token della Pagina (permesso `pages_manage_posts`). Se Facebook rifiuta il video, il log riporta l'errore e il post non esce (con `FB_SCHEDE = False` non c'è ripiego sull'immagine).
 - **Modello Sonnet** — le versioni delle librerie Google sono pinnate nel workflow apposta: un loro breaking change non deve poter bloccare l'invio.
