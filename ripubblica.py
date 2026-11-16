@@ -30,7 +30,7 @@ import newsletter_rss as nr
 log = logging.getLogger("ripubblica")
 
 VOCI = ("carosello", "ig_schede", "fb_schede", "x", "ig_podcast", "fb_podcast")
-PREDEFINITE = "ig_schede,ig_podcast,fb_podcast"
+PREDEFINITE = "ig_schede,ig_podcast"
 CARTELLE = ("archivio", "immagini", "podcast")
 
 
