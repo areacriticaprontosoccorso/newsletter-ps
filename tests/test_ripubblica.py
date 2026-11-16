@@ -14,7 +14,7 @@ import ripubblica as rp  # noqa: E402
 
 class Voci(unittest.TestCase):
     def test_predefinite_e_valide(self):
-        self.assertEqual(rp.voci_da_ripubblicare(""), {"ig_schede", "ig_podcast", "fb_podcast"})
+        self.assertEqual(rp.voci_da_ripubblicare(""), {"ig_schede", "ig_podcast"})
         self.assertEqual(rp.voci_da_ripubblicare("IG_schede, x"), {"ig_schede", "x"})
 
     def test_voce_sconosciuta(self):

@@ -71,5 +71,28 @@ class DaGithub(unittest.TestCase):
         self.assertEqual(len(self.comandi), 1)
 
 
+class Avvisi(unittest.TestCase):
+    """Se dopo il caricamento diretto c'e' la strada di riserva, il rifiuto e' un avviso, non un errore."""
+
+    def prova(self, riserva):
+        def finto(metodo, url, campi, file_path=None, timeout=60):
+            if url.endswith("/media"):
+                return {"id": "C1"}
+            raise RuntimeError("HTTP 400: ProcessingFailedError")
+        with mock.patch.object(ig, "_chiama", finto), mock.patch.object(ig, "_carica_video",
+                                                                          side_effect=RuntimeError("ProcessingFailedError")), \
+             mock.patch.object(ig.time, "sleep"):
+            with self.assertLogs(ig.log, level="DEBUG") as lg:
+                r = ig.pubblica_reel("v.mp4", "x", "IG", "TOK", riserva=riserva)
+        self.assertIsNone(r)
+        return [x.levelname for x in lg.records if "Reel non pubblicato" in x.getMessage()]
+
+    def test_con_riserva_e_solo_un_avviso(self):
+        self.assertEqual(self.prova(True), ["WARNING"])
+
+    def test_senza_riserva_e_un_errore(self):
+        self.assertEqual(self.prova(False), ["ERROR"])
+
+
 if __name__ == "__main__":
     unittest.main()

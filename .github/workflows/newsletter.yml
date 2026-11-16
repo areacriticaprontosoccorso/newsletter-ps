@@ -30,7 +30,7 @@ on:
       ripubblica_cosa:
         description: "Cosa ripubblicare (con ripubblica_reel): ig_schede, fb_schede, x, ig_podcast, fb_podcast, carosello"
         type: string
-        default: "ig_schede,ig_podcast,fb_podcast"
+        default: "ig_schede,ig_podcast"
       run_id:
         description: "Facoltativo, con ripubblica_reel: numero della corsa da ripubblicare (dall'indirizzo della pagina del run)"
         type: string

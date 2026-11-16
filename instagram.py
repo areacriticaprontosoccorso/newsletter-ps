@@ -708,13 +708,15 @@ def _diagnosi_contenitore(contenitore, token, versione):
         log.warning(f"Instagram: stato del contenitore non leggibile ({str(e)[:150]})")
 
 
-def pubblica_reel(video, didascalia, ig_user_id, token, versione="v21.0", video_url=None):
+def pubblica_reel(video, didascalia, ig_user_id, token, versione="v21.0", video_url=None, riserva=False):
     """Pubblica un Reel. Restituisce l'id del post, o None se qualcosa non va (errore nel log).
     Se Instagram non riesce a elaborare il video, riprova (tre tentativi in tutto) con un
     contenitore nuovo: non c'e' ancora nessun post, quindi niente doppioni. La pubblicazione si
     ripete solo se Instagram dice «non ancora pronto».
     Con `video_url` Instagram scarica il video da quell'indirizzo pubblico invece di riceverlo
-    da qui: e' la strada di riserva quando il caricamento diretto fallisce."""
+    da qui: e' la strada di riserva quando il caricamento diretto fallisce.
+    `riserva`: dopo questo tentativo ce n'e' un altro (indirizzo pubblico): se fallisce e' solo
+    un avviso nel log, non un errore (l'avviso per email scatta solo sugli errori)."""
     base = f"https://graph.facebook.com/{versione}/{ig_user_id}"
     c, fase = None, ""
     tentativi = len(PAUSE_RIPROVA_S) + 1
@@ -740,7 +742,10 @@ def pubblica_reel(video, didascalia, ig_user_id, token, versione="v21.0", video_
                             f"riprovo tra {pausa} s")
                 time.sleep(pausa)
                 continue
-            log.error(f"Instagram: Reel non pubblicato ({fase}: {e})")
+            if riserva and fase != "creazione del contenitore":
+                log.warning(f"Instagram: Reel non pubblicato ({fase}: {e}) - provo un'altra strada")
+            else:
+                log.error(f"Instagram: Reel non pubblicato ({fase}: {e})")
             return None
     try:
         post = _pubblica_contenitore(base, c, token)
@@ -751,6 +756,12 @@ def pubblica_reel(video, didascalia, ig_user_id, token, versione="v21.0", video_
         return None
 
 
+def _github_disponibile():
+    """True se la strada di riserva da GitHub puo' partire (token, repository, non spenta)."""
+    return bool(os.environ.get("GITHUB_REPOSITORY") and (os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN"))
+                and os.environ.get("REEL_URL_GITHUB", "1") != "0")
+
+
 def _reel_instagram_da_github(video, didascalia, cfg):
     """Strada di riserva (prima di quella da Facebook): se il caricamento diretto del Reel fallisce,
     il file viene messo per qualche minuto come allegato di una release del repository (pubblico) e
@@ -758,7 +769,7 @@ def _reel_instagram_da_github(video, didascalia, cfg):
     Serve GH_TOKEN con permesso contents: write (nel workflow); senza, o con REEL_URL_GITHUB=0,
     non fa nulla. Mai eccezioni. Id o None."""
     repo, tok = os.environ.get("GITHUB_REPOSITORY", ""), os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
-    if not video or not repo or not tok or os.environ.get("REEL_URL_GITHUB", "1") == "0":
+    if not video or not _github_disponibile():
         return None
     tag = f"reel-temp-{int(time.time())}-{uuid.uuid4().hex[:6]}"
     nome = f"reel-{uuid.uuid4().hex[:8]}.mp4"
@@ -1011,7 +1022,7 @@ def _reel_schede(file, tipi, parole, didascalia, cfg, dry_run):
         ig = fb = None
         if _fa(cfg, "ig_schede"):
             ig = pubblica_reel(dest, didascalia, cfg.IG_USER_ID, token_instagram(cfg),
-                               getattr(cfg, "FB_API_VERSION", "v21.0"))
+                               getattr(cfg, "FB_API_VERSION", "v21.0"), riserva=_github_disponibile())
         if _fa(cfg, "fb_schede"):
             fb = _reel_facebook(dest, didascalia, cfg, dry_run, "schede")
         if _fa(cfg, "ig_schede"):
@@ -1098,7 +1109,7 @@ def pubblica_reel_podcast(mp4, sezioni, didascalia, cfg, dry_run=False, saluti=N
         ig = fb = None
         if _fa(cfg, "ig_podcast"):
             ig = pubblica_reel(dest, didascalia, cfg.IG_USER_ID, token_instagram(cfg),
-                               getattr(cfg, "FB_API_VERSION", "v21.0"))
+                               getattr(cfg, "FB_API_VERSION", "v21.0"), riserva=_github_disponibile())
         if _fa(cfg, "fb_podcast"):
             fb = _reel_facebook(dest, didascalia, cfg, dry_run, "podcast", ai=True)  # la voce e' sintetica
         if _fa(cfg, "ig_podcast"):
