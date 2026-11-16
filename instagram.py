@@ -582,11 +582,14 @@ def _attendi(contenitore, token, versione, attesa_max=ATTESA_MAX_S):
     inizio = time.time()
     stato = ""
     while time.time() - inizio <= attesa_max:
-        stato = _chiama("GET", base, {"fields": "status_code", "access_token": token}).get("status_code", "")
+        info = _chiama("GET", base, {"fields": "status_code,status", "access_token": token})
+        stato = info.get("status_code", "")
         if stato in ("FINISHED", "PUBLISHED"):
             return True
         if stato in ("ERROR", "EXPIRED"):
-            raise RuntimeError(f"Instagram ha rifiutato il contenuto ({stato})")
+            # `status` e' il motivo dettagliato di Meta (es. "Error: ... codice 2207026"), se c'e'
+            motivo = str(info.get("status") or "").strip()
+            raise RuntimeError(f"Instagram ha rifiutato il contenuto ({stato}{': ' + motivo[:200] if motivo else ''})")
         time.sleep(PAUSA_S)
     raise RuntimeError(f"Instagram non ha finito di elaborare entro {attesa_max} s (stato: {stato or '?'})")
 
@@ -675,7 +678,10 @@ def _carica_video(contenitore, percorso, token, versione, url=None):
         with urllib.request.urlopen(req, timeout=300) as r:
             esito = json.loads(r.read().decode("utf-8") or "{}")
     except urllib.error.HTTPError as e:
-        raise RuntimeError(f"HTTP {e.code}: {e.read().decode('utf-8', 'replace')[:400]}") from None
+        # x-fb-trace-id serve a Meta per risalire al motivo del rifiuto
+        traccia = (e.headers.get("x-fb-trace-id") or "") if getattr(e, "headers", None) else ""
+        raise RuntimeError(f"HTTP {e.code}: {e.read().decode('utf-8', 'replace')[:600]}"
+                           f"{' [trace ' + traccia + ']' if traccia else ''}") from None
     if esito.get("success") is False:
         raise RuntimeError(f"caricamento del video rifiutato: {str(esito)[:200]}")
     return esito
@@ -688,6 +694,17 @@ PAUSA_RIPROVA_S = PAUSE_RIPROVA_S[0]
 def _errore_di_elaborazione(e):
     """Instagram non e' riuscito a elaborare il video (puo' essere un intoppo passeggero)."""
     return any(k in str(e) for k in ("ProcessingFailed", "Request processing failed", "rifiutato il contenuto"))
+
+
+def _diagnosi_contenitore(contenitore, token, versione):
+    """Dopo un rifiuto, chiede a Meta lo stato dettagliato del contenitore e lo scrive nel log
+    (solo per capire il motivo). Mai eccezioni."""
+    try:
+        info = _chiama("GET", f"https://graph.facebook.com/{versione}/{contenitore}",
+                       {"fields": "status_code,status", "access_token": token})
+        log.warning(f"Instagram: stato del contenitore {contenitore}: {str(info)[:300]}")
+    except Exception as e:
+        log.warning(f"Instagram: stato del contenitore non leggibile ({str(e)[:150]})")
 
 
 def pubblica_reel(video, didascalia, ig_user_id, token, versione="v21.0", video_url=None):
@@ -714,6 +731,8 @@ def pubblica_reel(video, didascalia, ig_user_id, token, versione="v21.0", video_
             _attendi(c, token, versione, attesa_max=ATTESA_REEL_S)
             break
         except Exception as e:
+            if c and _errore_di_elaborazione(e):
+                _diagnosi_contenitore(c, token, versione)
             if tentativo < tentativi and _errore_di_elaborazione(e):
                 pausa = PAUSE_RIPROVA_S[tentativo - 1]
                 log.warning(f"Instagram: Reel, {fase} non riuscita ({e}) - tentativo {tentativo}, "
