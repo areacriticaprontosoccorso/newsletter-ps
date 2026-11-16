@@ -924,10 +924,20 @@ def con_credito_musica(didascalia, cfg, chiave_file="IG_MUSICA", chiave_credito=
     return f"{(didascalia or '').rstrip()}\n\n{credito}"
 
 
+def _fa(cfg, cosa):
+    """True se in questa corsa si pubblica `cosa`. cfg.SOLO_REEL (un insieme fra 'carosello',
+    'ig_schede', 'fb_schede', 'x', 'ig_podcast', 'fb_podcast') limita la corsa a quelle voci: serve a
+    ripubblicare solo cio' che e' fallito (ripubblica.py). Vuoto o assente: tutto."""
+    solo = getattr(cfg, "SOLO_REEL", None)
+    return not solo or cosa in solo
+
+
 def _reel_schede(file, tipi, parole, didascalia, cfg, dry_run):
     """Reel con le stesse diapositive del carosello. Mai eccezioni. Restituisce id, 'dry-run' o None."""
     try:
         if not getattr(cfg, "IG_REEL_SCHEDE", True):
+            return None
+        if not (_fa(cfg, "ig_schede") or _fa(cfg, "fb_schede") or _fa(cfg, "x")):
             return None
         dest = os.path.join(cfg.IG_DIR, "reel-schede.mp4")
         didascalia = con_credito_musica(didascalia, cfg)
@@ -940,11 +950,16 @@ def _reel_schede(file, tipi, parole, didascalia, cfg, dry_run):
             _reel_x(dest, didascalia, cfg, dry_run)
             return "dry-run"
         log.info(f"Instagram: Reel delle schede pronto ({mb:.1f} MB)")
-        ig = pubblica_reel(dest, didascalia, cfg.IG_USER_ID, token_instagram(cfg),
-                           getattr(cfg, "FB_API_VERSION", "v21.0"))
-        fb = _reel_facebook(dest, didascalia, cfg, dry_run, "schede")
-        ig = ig or _reel_instagram_da_facebook(fb, didascalia, cfg)
-        _reel_x(dest, didascalia, cfg, dry_run)
+        ig = fb = None
+        if _fa(cfg, "ig_schede"):
+            ig = pubblica_reel(dest, didascalia, cfg.IG_USER_ID, token_instagram(cfg),
+                               getattr(cfg, "FB_API_VERSION", "v21.0"))
+        if _fa(cfg, "fb_schede"):
+            fb = _reel_facebook(dest, didascalia, cfg, dry_run, "schede")
+        if _fa(cfg, "ig_schede"):
+            ig = ig or _reel_instagram_da_facebook(fb, didascalia, cfg)
+        if _fa(cfg, "x"):
+            _reel_x(dest, didascalia, cfg, dry_run)
         return ig
     except Exception as e:
         log.error(f"Instagram: Reel delle schede non creato ({e})")
@@ -972,7 +987,10 @@ def pubblica(voci, didascalia, cfg, dry_run=False, parole=None):
             log.warning("Instagram: nessuna diapositiva pronta - non pubblico")
             return None
         versione = getattr(cfg, "FB_API_VERSION", "v21.0")
-        if dry_run:
+        if not _fa(cfg, "carosello"):
+            post = None
+            log.info("Instagram: carosello non ripubblicato (solo i Reel)")
+        elif dry_run:
             with open(os.path.join(cfg.IG_DIR, "didascalia.txt"), "w", encoding="utf-8") as f:
                 f.write(taglia_didascalia(didascalia) + "\n")
             log.info(f"Instagram (prova a vuoto): {len(file)} diapositive e didascalia in {cfg.IG_DIR}/")
@@ -1000,6 +1018,8 @@ def pubblica_reel_podcast(mp4, sezioni, didascalia, cfg, dry_run=False, saluti=N
     try:
         if not getattr(cfg, "IG_ABILITATO", True) or not getattr(cfg, "IG_REEL_PODCAST", True):
             return None
+        if not (_fa(cfg, "ig_podcast") or _fa(cfg, "fb_podcast")):
+            return None
         if not mp4 or not os.path.exists(mp4):
             log.info("Instagram: nessun video del podcast, niente Reel dell'estratto")
             return None
@@ -1017,10 +1037,14 @@ def pubblica_reel_podcast(mp4, sezioni, didascalia, cfg, dry_run=False, saluti=N
             _reel_facebook(dest, didascalia, cfg, dry_run, "podcast", ai=True)
             return "dry-run"
         log.info(f"Instagram: Reel del podcast pronto ({durata:.0f} s, {mb:.1f} MB)")
-        ig = pubblica_reel(dest, didascalia, cfg.IG_USER_ID, token_instagram(cfg),
-                           getattr(cfg, "FB_API_VERSION", "v21.0"))
-        fb = _reel_facebook(dest, didascalia, cfg, dry_run, "podcast", ai=True)    # la voce e' sintetica
-        ig = ig or _reel_instagram_da_facebook(fb, didascalia, cfg)
+        ig = fb = None
+        if _fa(cfg, "ig_podcast"):
+            ig = pubblica_reel(dest, didascalia, cfg.IG_USER_ID, token_instagram(cfg),
+                               getattr(cfg, "FB_API_VERSION", "v21.0"))
+        if _fa(cfg, "fb_podcast"):
+            fb = _reel_facebook(dest, didascalia, cfg, dry_run, "podcast", ai=True)  # la voce e' sintetica
+        if _fa(cfg, "ig_podcast"):
+            ig = ig or _reel_instagram_da_facebook(fb, didascalia, cfg)
         return ig
     except Exception as e:
         log.error(f"Instagram: Reel del podcast non creato ({e})")

@@ -23,6 +23,18 @@ on:
         description: "Genera il podcast e lo pubblica col post del lunedì"
         type: boolean
         default: true
+      ripubblica_reel:
+        description: "Ripubblica SOLO i Reel falliti dell'ultima corsa di questa settimana (niente mail, Telegram, carosello, podcast nuovo)"
+        type: boolean
+        default: false
+      ripubblica_cosa:
+        description: "Cosa ripubblicare (con ripubblica_reel): ig_schede, fb_schede, x, ig_podcast, fb_podcast, carosello"
+        type: string
+        default: "ig_schede,ig_podcast,fb_podcast"
+      run_id:
+        description: "Facoltativo, con ripubblica_reel: numero della corsa da ripubblicare (dall'indirizzo della pagina del run)"
+        type: string
+        default: ""
 
 # Evita doppi invii se cron-job.org spara due trigger ravvicinati:
 # il secondo run attende (non cancella) ma non gira in parallelo.
@@ -33,6 +45,10 @@ concurrency:
 jobs:
   invia-newsletter:
     runs-on: ubuntu-latest
+    # actions: read serve a ripubblica.py per scaricare l'artifact di una corsa precedente.
+    permissions:
+      contents: read
+      actions: read
     # Dipendenze del podcast fino a 15 minuti, newsletter pochi minuti, podcast fino a
     # 45 (voce generata su CPU, poi si rinuncia), pubblicazione e artifact: 90 di margine.
     timeout-minutes: 90
@@ -41,7 +57,8 @@ jobs:
       DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
       SOLO_FACEBOOK: ${{ inputs.solo_facebook && '1' || '' }}
       # Da cron-job.org gli input sono vuoti: il podcast resta attivo (default di config.py).
-      PODCAST: ${{ inputs.podcast == false && '0' || '1' }}
+      PODCAST: ${{ (inputs.podcast == false || inputs.ripubblica_reel) && '0' || '1' }}
+      RIPUBBLICA: ${{ inputs.ripubblica_reel && '1' || '' }}
       # Motore della voce: 'gemini' (predefinito, API di Google) o 'chatterbox' (modello
       # locale). Si cambia con la variabile di repository PODCAST_MOTORE, senza toccare il codice.
       PODCAST_MOTORE: ${{ vars.PODCAST_MOTORE || 'gemini' }}
@@ -120,6 +137,7 @@ jobs:
         run: echo "NEWSLETTER_INIZIO=$(date -u '+%Y-%m-%d %H:%M:%S,%3N')" >> "$GITHUB_ENV"
 
       - name: Esegui newsletter
+        if: env.RIPUBBLICA != '1'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
@@ -142,6 +160,28 @@ jobs:
           TQDM_DISABLE: '1'
           HF_HUB_DISABLE_PROGRESS_BARS: '1'
         run: python newsletter_rss.py
+
+      # Solo con ripubblica_reel: rifà e ripubblica i Reel indicati di una corsa gia' fatta,
+      # con gli articoli e il podcast di quella corsa (dall'artifact). Niente mail ne' Telegram.
+      - name: Installa ffmpeg (ripubblicazione)
+        if: env.RIPUBBLICA == '1'
+        run: command -v ffmpeg || (sudo apt-get update && sudo apt-get install -y ffmpeg)
+
+      - name: Ripubblica i Reel
+        if: env.RIPUBBLICA == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+          RIPUBBLICA_COSA: ${{ inputs.ripubblica_cosa }}
+          FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
+          FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
+          IG_USER_ID: ${{ secrets.IG_USER_ID }}
+          IG_PAGE_TOKEN: ${{ secrets.IG_PAGE_TOKEN }}
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
+        run: python ripubblica.py
 
       # Gira sempre: pubblica il post del lunedì rimandato dalla newsletter,
       # col video se c'è, altrimenti con l'immagine. Se la newsletter è fallita
