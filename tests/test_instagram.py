@@ -199,12 +199,21 @@ class Api(unittest.TestCase):
 
     def test_rifiuto_di_instagram_non_solleva(self):
         def f(metodo, url, campi, file_path=None, timeout=60):
-            if metodo == "GET" and campi.get("fields") == "status_code":
+            if metodo == "GET" and str(campi.get("fields", "")).startswith("status_code"):
                 return {"status_code": "ERROR"}
             return self.finto(metodo, url, campi, file_path)
         with mock.patch.object(ig, "_chiama", f), mock.patch.object(ig.time, "sleep"):
             self.assertIsNone(ig.pubblica_carosello(self.f, "x", "IGID", "PAGE", "TOK"))
         self.assertFalse([c for c in self.chiamate if c[1].endswith("media_publish")])
+
+    def test_il_motivo_dettagliato_di_meta_finisce_nell_errore(self):
+        def f(metodo, url, campi, file_path=None, timeout=60):
+            return {"status_code": "ERROR", "status": "Error: Media upload has failed (2207026)"}
+        with mock.patch.object(ig, "_chiama", f):
+            with self.assertRaises(RuntimeError) as c:
+                ig._attendi("C1", "TOK", "v21.0", attesa_max=5)
+        self.assertIn("2207026", str(c.exception))
+        self.assertIn("rifiutato il contenuto", str(c.exception))
 
     def test_massimo_dieci(self):
         molte = self.f * 5
