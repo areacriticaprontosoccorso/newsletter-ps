@@ -28,6 +28,7 @@ import logging
 import mimetypes
 import os
 import re
+import shutil
 import subprocess
 import time
 import urllib.error
@@ -750,6 +751,44 @@ def pubblica_reel(video, didascalia, ig_user_id, token, versione="v21.0", video_
         return None
 
 
+def _reel_instagram_da_github(video, didascalia, cfg):
+    """Strada di riserva (prima di quella da Facebook): se il caricamento diretto del Reel fallisce,
+    il file viene messo per qualche minuto come allegato di una release del repository (pubblico) e
+    Instagram lo scarica da quell'indirizzo. La release si cancella sempre a fine tentativo.
+    Serve GH_TOKEN con permesso contents: write (nel workflow); senza, o con REEL_URL_GITHUB=0,
+    non fa nulla. Mai eccezioni. Id o None."""
+    repo, tok = os.environ.get("GITHUB_REPOSITORY", ""), os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if not video or not repo or not tok or os.environ.get("REEL_URL_GITHUB", "1") == "0":
+        return None
+    tag = f"reel-temp-{int(time.time())}-{uuid.uuid4().hex[:6]}"
+    nome = f"reel-{uuid.uuid4().hex[:8]}.mp4"
+    cartella = os.path.join(os.path.dirname(os.path.abspath(video)), f".{tag}")
+    env = {**os.environ, "GH_TOKEN": tok}
+    creata = False
+    try:
+        os.makedirs(cartella, exist_ok=True)
+        file = os.path.join(cartella, nome)
+        shutil.copyfile(video, file)
+        subprocess.run(["gh", "release", "create", tag, file, "-R", repo, "--title", "Reel temporaneo",
+                        "--notes", "File temporaneo per la pubblicazione su Instagram: si cancella da solo."],
+                       check=True, capture_output=True, text=True, env=env, timeout=300)
+        creata = True
+        url = f"https://github.com/{repo}/releases/download/{tag}/{nome}"
+        log.info("Instagram: riprovo il Reel facendo scaricare il video da un indirizzo pubblico (GitHub)")
+        return pubblica_reel(None, didascalia, cfg.IG_USER_ID, token_instagram(cfg),
+                             getattr(cfg, "FB_API_VERSION", "v21.0"), video_url=url)
+    except subprocess.CalledProcessError as e:
+        log.error(f"Instagram: Reel non pubblicato (video su GitHub: {(e.stderr or '')[:200].strip()})")
+    except Exception as e:
+        log.error(f"Instagram: Reel non pubblicato (dal video su GitHub: {str(e)[:200]})")
+    finally:
+        shutil.rmtree(cartella, ignore_errors=True)
+        if creata:
+            subprocess.run(["gh", "release", "delete", tag, "-R", repo, "--cleanup-tag", "-y"],
+                           capture_output=True, text=True, env=env, timeout=120, check=False)
+    return None
+
+
 def _reel_instagram_da_facebook(video_fb, didascalia, cfg):
     """Strada di riserva: se il Reel non e' entrato su Instagram ma e' uscito su Facebook, si chiede a
     Instagram di prenderlo dall'indirizzo del video di Facebook. Mai eccezioni. Id o None."""
@@ -976,7 +1015,7 @@ def _reel_schede(file, tipi, parole, didascalia, cfg, dry_run):
         if _fa(cfg, "fb_schede"):
             fb = _reel_facebook(dest, didascalia, cfg, dry_run, "schede")
         if _fa(cfg, "ig_schede"):
-            ig = ig or _reel_instagram_da_facebook(fb, didascalia, cfg)
+            ig = ig or _reel_instagram_da_github(dest, didascalia, cfg) or _reel_instagram_da_facebook(fb, didascalia, cfg)
         if _fa(cfg, "x"):
             _reel_x(dest, didascalia, cfg, dry_run)
         return ig
@@ -1063,7 +1102,7 @@ def pubblica_reel_podcast(mp4, sezioni, didascalia, cfg, dry_run=False, saluti=N
         if _fa(cfg, "fb_podcast"):
             fb = _reel_facebook(dest, didascalia, cfg, dry_run, "podcast", ai=True)  # la voce e' sintetica
         if _fa(cfg, "ig_podcast"):
-            ig = ig or _reel_instagram_da_facebook(fb, didascalia, cfg)
+            ig = ig or _reel_instagram_da_github(dest, didascalia, cfg) or _reel_instagram_da_facebook(fb, didascalia, cfg)
         return ig
     except Exception as e:
         log.error(f"Instagram: Reel del podcast non creato ({e})")
