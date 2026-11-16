@@ -46,8 +46,10 @@ jobs:
   invia-newsletter:
     runs-on: ubuntu-latest
     # actions: read serve a ripubblica.py per scaricare l'artifact di una corsa precedente.
+    # contents: write serve solo alla strada di riserva dei Reel: se Instagram rifiuta il caricamento
+    # diretto, il video sta pochi minuti come allegato di una release temporanea (poi cancellata).
     permissions:
-      contents: read
+      contents: write
       actions: read
     # Dipendenze del podcast fino a 15 minuti, newsletter pochi minuti, podcast fino a
     # 45 (voce generata su CPU, poi si rinuncia), pubblicazione e artifact: 90 di margine.
@@ -139,6 +141,7 @@ jobs:
       - name: Esegui newsletter
         if: env.RIPUBBLICA != '1'
         env:
+          GH_TOKEN: ${{ github.token }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_TOKEN: ${{ secrets.GMAIL_TOKEN }}
