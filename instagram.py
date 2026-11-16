@@ -377,7 +377,7 @@ def crea_reel(diapositive, durate, dest, sfondo="#1a1a1a", musica=None):
              for k in range(n)]
     graf = (";".join(parti) + ";" + "".join(f"[v{k}]" for k in range(n))
             + f"concat=n={n}:v=1:a=0,fps=30,fade=t=out:st={max(0.0, totale - 0.5):.2f}:d=0.5,"
-            "format=yuv420p[v]")
+            f"{GAMMA_TV}[v]")
     if musica and os.path.exists(musica):
         ingressi += ["-stream_loop", "-1", "-i", musica]
         graf += (f";[{n}:a]volume=0.35,atrim=0:{totale:.3f},"
@@ -387,9 +387,8 @@ def crea_reel(diapositive, durate, dest, sfondo="#1a1a1a", musica=None):
         graf += f";[{n}:a]anull[a]"
     try:
         subprocess.run(["ffmpeg", "-y", "-loglevel", "error", *ingressi, "-filter_complex", graf,
-                        "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-preset", "veryfast",
-                        "-tune", "stillimage", "-crf", "24", "-c:a", "aac", "-b:a", "128k",
-                        "-ar", "48000", "-t", f"{totale:.3f}", "-movflags", "+faststart", dest],
+                        "-map", "[v]", "-map", "[a]", "-tune", "stillimage", *VIDEO_REEL,
+                        "-t", f"{totale:.3f}", dest],
                        check=True, capture_output=True)
     except subprocess.CalledProcessError as e:
         raise RuntimeError((e.stderr or b"").decode("utf-8", "replace")[-300:] or "ffmpeg") from None
@@ -442,7 +441,7 @@ def crea_estratto_podcast(mp4, dest, sezioni=None, chiusura=None, sfondo="#1a1a1
     graf = (f"[0:v]split=2[a][b];"
             f"[b]scale={REEL_L}:{REEL_A}:force_original_aspect_ratio=increase,crop={REEL_L}:{REEL_A},"
             f"boxblur=40:5[bg];[a]scale={LARGHEZZA}:{ALTEZZA}[fg];"
-            f"[bg][fg]overlay=0:{REEL_Y},fade=t=out:st={st:.2f}:d=0.8,fps=30,setsar=1,format=yuv420p[v0];"
+            f"[bg][fg]overlay=0:{REEL_Y},fade=t=out:st={st:.2f}:d=0.8,fps=30,setsar=1,{GAMMA_TV}[v0];"
             f"[0:a]afade=t=out:st={st:.2f}:d=0.8,aformat=sample_rates=48000:channel_layouts=stereo[a0]")
     ingressi = ["-i", mp4]
     if chiusura and os.path.exists(chiusura):
@@ -455,16 +454,14 @@ def crea_estratto_podcast(mp4, dest, sezioni=None, chiusura=None, sfondo="#1a1a1
             ingressi += ["-f", "lavfi", "-t", f"{dur_loghi:.3f}", "-i", "anullsrc=r=48000:cl=stereo"]
             audio_coda = "[2:a]"
         graf += (f";[1:v]scale={LARGHEZZA}:{ALTEZZA},setsar=1,"
-                 f"pad={REEL_L}:{REEL_A}:0:{REEL_Y}:color={_colore_ffmpeg(sfondo)},fps=30,format=yuv420p[v1];"
+                 f"pad={REEL_L}:{REEL_A}:0:{REEL_Y}:color={_colore_ffmpeg(sfondo)},fps=30,{GAMMA_TV}[v1];"
                  f"{audio_coda}aformat=sample_rates=48000:channel_layouts=stereo[a1];"
                  "[v0][a0][v1][a1]concat=n=2:v=1:a=1[v][au]")
     else:
         graf += ";[v0]null[v];[a0]anull[au]"
     try:
         subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-t", f"{durata:.3f}", *ingressi,
-                        "-filter_complex", graf, "-map", "[v]", "-map", "[au]", "-r", "30",
-                        "-c:v", "libx264", "-preset", "veryfast", "-crf", "24", "-c:a", "aac",
-                        "-b:a", "128k", "-movflags", "+faststart", dest],
+                        "-filter_complex", graf, "-map", "[v]", "-map", "[au]", *VIDEO_REEL, dest],
                        check=True, capture_output=True)
     except subprocess.CalledProcessError as e:
         raise RuntimeError((e.stderr or b"").decode("utf-8", "replace")[-300:] or "ffmpeg") from None
@@ -651,6 +648,17 @@ def pubblica_carosello(file_diapositive, didascalia, ig_user_id, page_id, token,
     except Exception as e:
         log.error(f"Instagram: pubblicazione fallita ({e})")
         return None
+
+
+# Codifica dei Reel nel formato piu' standard possibile per Instagram: 4:2:0 a gamma limitata
+# ("tv", BT.709) - le slide JPEG/PNG davano yuvj420p a gamma piena, che Instagram puo' rifiutare -,
+# H.264 High 4.1, GOP chiuso di 2 s, 30 fps costanti, AAC 48 kHz stereo 128 kbps, moov in testa.
+VIDEO_REEL = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-profile:v", "high", "-level:v", "4.1",
+              "-pix_fmt", "yuv420p", "-color_range", "tv", "-colorspace", "bt709", "-color_primaries", "bt709",
+              "-color_trc", "bt709", "-g", "60", "-keyint_min", "60", "-sc_threshold", "0", "-r", "30",
+              "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2", "-movflags", "+faststart"]
+# Conversione esplicita alla gamma limitata (le immagini sono a gamma piena).
+GAMMA_TV = "scale=out_range=tv:out_color_matrix=bt709,format=yuv420p"
 
 
 def _carica_video(contenitore, percorso, token, versione, url=None):
