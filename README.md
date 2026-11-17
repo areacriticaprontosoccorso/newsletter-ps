@@ -237,3 +237,19 @@ Senza `IG_USER_ID` non succede nulla; `IG_ABILITATO=0` lo spegne. Le diapositive
 come foto **non pubblicate** (Instagram scarica da lì l'indirizzo pubblico): nulla compare su Facebook.
 Un errore Instagram non blocca mai l'invio. Con `dry_run` non si chiama nessuna API: diapositive, Reel (`reel-schede.mp4`, `reel-podcast.mp4`) e didascalia finiscono nell'artefatto del run (cartella `instagram/`). Il codice sta in `instagram.py`.
 
+## YouTube
+
+Ogni lunedì escono su YouTube il **podcast completo** e due **Shorts**: le schede degli articoli e l'estratto del podcast (gli stessi Reel di Instagram). Moduli: `youtube.py` (caricamento con la YouTube Data API v3, solo libreria standard) e `youtube_autorizza.py` (si usa una volta sola). Sono uguali nei tre repository; si spegne con `YT_ABILITATO = False` in `config.py`. Titoli e tag: `YT_TITOLI`, `YT_TAGS`, `YT_PRIVACY` (predefinita `public`). Se i secret mancano, YouTube viene saltato in silenzio. Un errore compare nel log come `[ERROR] YouTube: ...` e quindi nell'email di avviso, senza fermare il resto.
+
+**Da fare una volta sola.**
+1. Google Cloud Console (va bene il progetto di Gmail) → *API e servizi* → *Libreria* → abilita **YouTube Data API v3**.
+2. *Schermata consenso OAuth* → stato **In produzione** (in «Test» il token scade dopo 7 giorni, come per Gmail).
+3. *Credenziali* → *ID client OAuth* → tipo **App desktop** → scarica il JSON.
+4. Sul tuo computer: `pip install google-auth-oauthlib`, poi `python youtube_autorizza.py client_secret.json`; accedi con l'account proprietario del **canale** YouTube. Lo script stampa `YT_CLIENT_ID`, `YT_CLIENT_SECRET`, `YT_REFRESH_TOKEN`.
+5. Salvali come secret in Settings → Secrets and variables → Actions.
+
+**Limiti.**
+- **Video privati.** Un progetto Google non verificato da YouTube ha i video caricati dall'API *bloccati come privati*. Il log lo segnala dopo ogni caricamento («il video è PRIVATE invece di PUBLIC»). Per sbloccarli si compila il modulo *YouTube API Services Audit* (si cerca con questo nome nella documentazione di YouTube); nel frattempo si rendono pubblici a mano da YouTube Studio.
+- **Quota.** Ogni caricamento costa 1600 unità su 10.000 al giorno: circa 6 video al giorno. Il lunedì sono 3 video (4800 unità).
+- **Shorts.** Un Short è un video verticale fino a 3 minuti: i Reel (9:16) lo sono e portano `#Shorts` in descrizione. Il podcast completo esce come video normale, con la dichiarazione «contenuto generato con IA» (voce sintetica).
+- **Ripubblicare.** Le voci `yt_schede`, `yt_podcast`, `yt_completo` si scelgono anche nell'opzione *ripubblica_cosa*; come per le altre, ogni voce scelta viene ripubblicata (doppioni se già uscita).
