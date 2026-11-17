@@ -14,7 +14,8 @@ import ripubblica as rp  # noqa: E402
 
 class Voci(unittest.TestCase):
     def test_predefinite_e_valide(self):
-        self.assertEqual(rp.voci_da_ripubblicare(""), {"ig_schede", "ig_podcast"})
+        self.assertEqual(rp.voci_da_ripubblicare(""), set(rp.PREDEFINITE.split(",")))
+        self.assertNotIn("fb_podcast", rp.PREDEFINITE)
         self.assertEqual(rp.voci_da_ripubblicare("IG_schede, x"), {"ig_schede", "x"})
 
     def test_voce_sconosciuta(self):
@@ -28,6 +29,46 @@ class Voci(unittest.TestCase):
         C.SOLO_REEL = {"ig_podcast"}
         self.assertTrue(ig._fa(C, "ig_podcast"))
         self.assertFalse(ig._fa(C, "carosello"))
+
+
+class Esecuzione(unittest.TestCase):
+    """main(): voci, firma di pubblica_instagram del repository e archivio della corsa."""
+
+    def test_nome_workflow(self):
+        with mock.patch.dict(os.environ, {"GITHUB_WORKFLOW_REF": "o/r/.github/workflows/newsletter_NIV.yml@refs/heads/main"}):
+            self.assertEqual(rp.nome_workflow(), "newsletter_NIV.yml")
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(rp.nome_workflow(), "newsletter.yml")
+
+    def test_main_passa_voci_e_articoli(self):
+        import inspect
+        visto = {}
+
+        def finto(*args, **kw):
+            visto["args"], visto["voci"] = args, set(rp.cfg.SOLO_REEL)
+        firma = inspect.signature(rp.nr.pubblica_instagram)
+        finto.__signature__ = firma                  # main() sceglie gli argomenti dalla firma reale
+        parametri = list(firma.parameters)
+        with tempfile.TemporaryDirectory() as d:
+            vecchia = os.getcwd()
+            os.makedirs(os.path.join(d, "archivio"))
+            with open(os.path.join(d, "archivio", "digest-s47-2026.json"), "w", encoding="utf-8") as f:
+                json.dump({"settimana": 47, "anno": 2026, "wl": {"settimana": 47, "anno": 2026, "mese": "Novembre"},
+                           "dry_run": False, "pubblicati": [{"pmid": "1"}]}, f)
+            os.chdir(d)
+            try:
+                with mock.patch.dict(os.environ, {"RIPUBBLICA_COSA": "ig_schede"}), \
+                        mock.patch.object(rp, "scarica", return_value=d), \
+                        mock.patch.object(rp, "rimetti_file"), \
+                        mock.patch.object(rp.nr, "pubblica_instagram", finto):
+                    self.assertEqual(rp.main(), 0)
+            finally:
+                os.chdir(vecchia)
+                rp.cfg.SOLO_REEL = None
+        self.assertEqual(visto["voci"], {"ig_schede"})
+        self.assertEqual(visto["args"][0], [{"pmid": "1"}])
+        self.assertEqual(len(visto["args"]), 3 if "immagini" in parametri else 2)
+        self.assertEqual(visto["args"][-1]["mese"], "Novembre")      # wl completo dall'archivio
 
 
 class Corsa(unittest.TestCase):
