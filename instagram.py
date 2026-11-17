@@ -35,6 +35,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 log = logging.getLogger(__name__)
 
@@ -908,6 +910,36 @@ def _reel_facebook(video, didascalia, cfg, dry_run, nome, ai=False):
         return None
 
 
+def _reel_youtube(video, didascalia, cfg, dry_run, nome, ai=False, shorts=True):
+    """Lo stesso video anche su YouTube (youtube.py; Short per i Reel, video normale per il podcast
+    completo). `nome`: 'schede', 'podcast' o 'completo' (titoli in cfg.YT_TITOLI). Non nelle prove
+    «solo Instagram». Mai eccezioni. Id, 'dry-run' o None."""
+    try:
+        if not getattr(cfg, "YT_ABILITATO", False) or getattr(cfg, "SOLO_INSTAGRAM", False):
+            return None
+        base = (getattr(cfg, "YT_TITOLI", {}) or {}).get(nome)
+        if not base:
+            return None
+        titolo = f"{base} del {datetime.now(ZoneInfo('Europe/Rome')):%d/%m/%Y}"
+        testo = descrizione_reel_facebook(didascalia, cfg)
+        if ai:
+            testo += "\n\nVoce generata con intelligenza artificiale."
+        if dry_run:
+            with open(os.path.join(cfg.IG_DIR, f"descrizione-youtube-{nome}.txt"), "w", encoding="utf-8") as f:
+                f.write(titolo + "\n\n" + testo + "\n")
+            log.info(f"YouTube (prova a vuoto): {nome}, stesso video di Instagram; titolo e descrizione in {cfg.IG_DIR}/")
+            return "dry-run"
+        import youtube
+        if not youtube.configurato():
+            return None
+        return youtube.pubblica_video(video, titolo, testo, getattr(cfg, "YT_PRIVACY", "public"),
+                                      getattr(cfg, "YT_TAGS", None), getattr(cfg, "YT_CATEGORIA", "27"),
+                                      sintetico=ai, shorts=shorts)
+    except Exception as e:
+        log.error(f"YouTube: video non pubblicato ({e})")
+        return None
+
+
 def _reel_x(video, didascalia, cfg, dry_run):
     """Il Reel delle schede anche su X (X_REEL = True, chiavi X_*): vedi x_social.py. Mai eccezioni."""
     try:
@@ -995,7 +1027,7 @@ def con_credito_musica(didascalia, cfg, chiave_file="IG_MUSICA", chiave_credito=
 
 def _fa(cfg, cosa):
     """True se in questa corsa si pubblica `cosa`. cfg.SOLO_REEL (un insieme fra 'carosello',
-    'ig_schede', 'fb_schede', 'x', 'ig_podcast', 'fb_podcast') limita la corsa a quelle voci: serve a
+    'ig_schede', 'fb_schede', 'x', 'yt_schede', 'ig_podcast', 'fb_podcast', 'yt_podcast', 'yt_completo') limita la corsa a quelle voci: serve a
     ripubblicare solo cio' che e' fallito (ripubblica.py). Vuoto o assente: tutto."""
     solo = getattr(cfg, "SOLO_REEL", None)
     return not solo or cosa in solo
@@ -1006,7 +1038,7 @@ def _reel_schede(file, tipi, parole, didascalia, cfg, dry_run):
     try:
         if not getattr(cfg, "IG_REEL_SCHEDE", True):
             return None
-        if not (_fa(cfg, "ig_schede") or _fa(cfg, "fb_schede") or _fa(cfg, "x")):
+        if not (_fa(cfg, "ig_schede") or _fa(cfg, "fb_schede") or _fa(cfg, "x") or _fa(cfg, "yt_schede")):
             return None
         dest = os.path.join(cfg.IG_DIR, "reel-schede.mp4")
         didascalia = con_credito_musica(didascalia, cfg)
@@ -1017,6 +1049,7 @@ def _reel_schede(file, tipi, parole, didascalia, cfg, dry_run):
             log.info(f"Instagram (prova a vuoto): Reel delle schede {mb:.1f} MB in {dest}")
             _reel_facebook(dest, didascalia, cfg, dry_run, "schede")
             _reel_x(dest, didascalia, cfg, dry_run)
+            _reel_youtube(dest, didascalia, cfg, dry_run, "schede")
             return "dry-run"
         log.info(f"Instagram: Reel delle schede pronto ({mb:.1f} MB)")
         ig = fb = None
@@ -1029,6 +1062,8 @@ def _reel_schede(file, tipi, parole, didascalia, cfg, dry_run):
             ig = ig or _reel_instagram_da_github(dest, didascalia, cfg) or _reel_instagram_da_facebook(fb, didascalia, cfg)
         if _fa(cfg, "x"):
             _reel_x(dest, didascalia, cfg, dry_run)
+        if _fa(cfg, "yt_schede"):
+            _reel_youtube(dest, didascalia, cfg, dry_run, "schede")
         return ig
     except Exception as e:
         log.error(f"Instagram: Reel delle schede non creato ({e})")
@@ -1083,11 +1118,15 @@ def pubblica(voci, didascalia, cfg, dry_run=False, parole=None):
 
 
 def pubblica_reel_podcast(mp4, sezioni, didascalia, cfg, dry_run=False, saluti=None):
-    """Reel con l'estratto del podcast (solo EM). Mai eccezioni. Id, 'dry-run' o None."""
+    """Reel con l'estratto del podcast (EM e NIV); se YouTube e' attivo, anche il podcast completo.
+    Mai eccezioni. Id, 'dry-run' o None."""
     try:
+        if mp4 and os.path.exists(mp4) and _fa(cfg, "yt_completo") and getattr(cfg, "YT_PODCAST_COMPLETO", True):
+            os.makedirs(cfg.IG_DIR, exist_ok=True)
+            _reel_youtube(mp4, didascalia, cfg, dry_run, "completo", ai=True, shorts=False)
         if not getattr(cfg, "IG_ABILITATO", True) or not getattr(cfg, "IG_REEL_PODCAST", True):
             return None
-        if not (_fa(cfg, "ig_podcast") or _fa(cfg, "fb_podcast")):
+        if not (_fa(cfg, "ig_podcast") or _fa(cfg, "fb_podcast") or _fa(cfg, "yt_podcast")):
             return None
         if not mp4 or not os.path.exists(mp4):
             log.info("Instagram: nessun video del podcast, niente Reel dell'estratto")
@@ -1104,6 +1143,7 @@ def pubblica_reel_podcast(mp4, sezioni, didascalia, cfg, dry_run=False, saluti=N
                 f.write(taglia_didascalia(didascalia) + "\n")
             log.info(f"Instagram (prova a vuoto): Reel del podcast {durata:.0f} s, {mb:.1f} MB in {dest}")
             _reel_facebook(dest, didascalia, cfg, dry_run, "podcast", ai=True)
+            _reel_youtube(dest, didascalia, cfg, dry_run, "podcast", ai=True)
             return "dry-run"
         log.info(f"Instagram: Reel del podcast pronto ({durata:.0f} s, {mb:.1f} MB)")
         ig = fb = None
@@ -1114,6 +1154,8 @@ def pubblica_reel_podcast(mp4, sezioni, didascalia, cfg, dry_run=False, saluti=N
             fb = _reel_facebook(dest, didascalia, cfg, dry_run, "podcast", ai=True)  # la voce e' sintetica
         if _fa(cfg, "ig_podcast"):
             ig = ig or _reel_instagram_da_github(dest, didascalia, cfg) or _reel_instagram_da_facebook(fb, didascalia, cfg)
+        if _fa(cfg, "yt_podcast"):
+            _reel_youtube(dest, didascalia, cfg, dry_run, "podcast", ai=True)
         return ig
     except Exception as e:
         log.error(f"Instagram: Reel del podcast non creato ({e})")
