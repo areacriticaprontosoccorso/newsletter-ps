@@ -2,7 +2,8 @@
 Ripubblica solo i Reel falliti di una corsa gia' fatta, senza rimandare mail, Telegram, carosello
 o post di Facebook gia' usciti.
 
-Workflow EM, opzione `ripubblica_reel` (con `ripubblica_cosa` e, facoltativo, `run_id`):
+Workflow di EM, POCUS e NIV (file identico nei tre repository), opzione `ripubblica_reel`
+(con `ripubblica_cosa` e, facoltativo, `run_id`):
   1. scarica l'artifact digest-N della corsa (quella indicata, oppure l'ultima corsa vera riuscita
      di questa settimana: si riconosce dall'archivio, che ha "dry_run": false);
   2. rimette nella cartella del repo archivio/, immagini/ e podcast/ di quella corsa;
@@ -15,6 +16,7 @@ Claude o a Gemini. Con DRY_RUN=1 prepara i file senza pubblicare.
 Uso: python ripubblica.py   (servono GH_TOKEN e GITHUB_REPOSITORY, come nel workflow)
 """
 import glob
+import inspect
 import json
 import logging
 import os
@@ -25,12 +27,21 @@ import time
 from datetime import date
 
 import config as cfg
-import newsletter_rss as nr
+
+try:                                       # EM, POCUS o NIV: in ogni repository c'e' un solo modulo
+    import newsletter_rss as nr
+except ImportError:
+    try:
+        import newsletter_pocus as nr
+    except ImportError:
+        import newsletter_NIV as nr
 
 log = logging.getLogger("ripubblica")
 
 VOCI = ("carosello", "ig_schede", "fb_schede", "x", "ig_podcast", "fb_podcast")
-PREDEFINITE = "ig_schede,ig_podcast"
+# Voci predefinite: quelle che di solito falliscono. In config.py (RIPUBBLICA_PREDEFINITE) si adattano
+# al repository (POCUS non ha il podcast). fb_podcast non e' predefinito: ripubblicarlo crea doppioni.
+PREDEFINITE = getattr(cfg, "RIPUBBLICA_PREDEFINITE", "ig_schede,ig_podcast")
 CARTELLE = ("archivio", "immagini", "podcast")
 
 
@@ -42,6 +53,13 @@ def voci_da_ripubblicare(testo):
         raise ValueError(f"voci non valide: {', '.join(sorted(sconosciute)) or '(nessuna)'} "
                          f"(ammesse: {', '.join(VOCI)})")
     return voci
+
+
+def nome_workflow():
+    """File del workflow in corso (dal GITHUB_WORKFLOW_REF), per cercarne le corse passate."""
+    ref = os.environ.get("GITHUB_WORKFLOW_REF", "")
+    nome = os.path.basename(ref.split("@")[0]) if "@" in ref else ""
+    return nome if nome.endswith((".yml", ".yaml")) else "newsletter.yml"
 
 
 def _gh(*args):
@@ -75,7 +93,7 @@ def scarica(run_id=None, repo=None, base=None):
     if run_id:
         candidati, settimana = [str(run_id)], None
     else:
-        corse = json.loads(_gh("run", "list", "-R", repo, "--workflow", "newsletter.yml", "--status",
+        corse = json.loads(_gh("run", "list", "-R", repo, "--workflow", nome_workflow(), "--status",
                                "success", "-L", "20", "--json", "databaseId"))
         attuale = os.environ.get("GITHUB_RUN_ID", "")
         candidati = [str(c["databaseId"]) for c in corse if str(c["databaseId"]) != attuale]
@@ -119,11 +137,15 @@ def main():
     rimetti_file(radice)
     _, dati = archivio_della_corsa(".")
     articoli = dati["pubblicati"]
-    wl = {"settimana": dati["settimana"], "anno": dati["anno"]}
-    immagini = sorted(glob.glob(os.path.join(cfg.IMG_DIR,
-                                             f"digest-s{str(wl['settimana']).zfill(2)}-*.png")))
+    wl = dati.get("wl") or {"settimana": dati["settimana"], "anno": dati["anno"]}
     cfg.SOLO_REEL = voci
-    nr.pubblica_instagram(articoli, immagini, wl, dry_run=cfg.DRY_RUN)
+    parametri = inspect.signature(nr.pubblica_instagram).parameters
+    if "immagini" in parametri:                # EM e POCUS: le schede della mail; NIV non le ha
+        immagini = sorted(glob.glob(os.path.join(cfg.IMG_DIR,
+                                                 f"digest-s{str(wl['settimana']).zfill(2)}-*.png")))
+        nr.pubblica_instagram(articoli, immagini, wl, dry_run=cfg.DRY_RUN)
+    else:
+        nr.pubblica_instagram(articoli, wl, dry_run=cfg.DRY_RUN)
     log.info("=== Ripubblicazione finita ===")
     return 0
 
