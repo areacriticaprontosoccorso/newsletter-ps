@@ -52,8 +52,11 @@ from zoneinfo import ZoneInfo
 import config as cfg
 try:                                   # EM
     import newsletter_rss as nr
-except ImportError:                    # NIV: stesso file, altro modulo della newsletter
-    import newsletter_NIV as nr
+except ImportError:                    # NIV e POCUS: stesso file, altro modulo della newsletter
+    try:
+        import newsletter_NIV as nr
+    except ImportError:
+        import newsletter_pocus as nr
 import corsi as avvisi
 
 log = nr.log
@@ -172,7 +175,10 @@ def limiti_parole(n):
 
 def intro(n, apertura=None):
     """Saluto fisso; la frase d'apertura di Claude va prima di "Buon ascolto"."""
-    t = cfg.PODCAST_INTRO.replace("{Articoli}", _num_it(n).capitalize())
+    if n == 1:      # "Uno articoli" -> "Un articolo" (POCUS esce anche con un solo articolo)
+        t = cfg.PODCAST_INTRO.replace("{Articoli} articoli", "Un articolo").replace("{Articoli}", "Un")
+    else:
+        t = cfg.PODCAST_INTRO.replace("{Articoli}", _num_it(n).capitalize())
     if not apertura:
         return t
     apertura = apertura.strip()

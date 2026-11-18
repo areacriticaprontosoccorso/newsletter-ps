@@ -98,6 +98,8 @@ Tutti i parametri stanno in `config.py`. I principali:
 
 ## Podcast settimanale (`podcast.py`)
 
+`podcast.py` è lo stesso file in Newsletter-NIV e newsletter-pocus (copia identica, che sceglie da sola il modulo della newsletter): se lo modifichi, modificalo in tutti e tre.
+
 Ogni lunedì il workflow produce un podcast di circa **due minuti** (al massimo 2'20", `PODCAST_DURATA_MAX`) (una voce, italiano, riviste e termini inglesi in pronuncia inglese): il **video MP4 parte allegato alla mail** ai `DESTINATARI` e il **video** esce su Facebook nel post del primo articolo.
 
 **Quando parte la mail** — l'orario del run lo decide cron-job.org (lunedì 13:00), non il codice. Dentro il run, `newsletter_rss.py` genera schede e podcast (`genera_podcast`, un processo separato) e solo dopo invia la mail: con Gemini la mail esce pochi minuti dopo l'avvio (20–30 con Chatterbox). Se il podcast fallisce, o supera `PODCAST_TIMEOUT_MAIL` (45 minuti), il processo viene chiuso e la mail parte **senza** podcast, come prima. Allegati in ordine di preferenza (`PODCAST_MAIL_ALLEGATI`): il video MP4 (~4 MB) e, se Gmail rifiuta l'invio, l'MP3 (~2 MB), poi nessuno; si scarta ciò che porterebbe gli allegati oltre `MAIL_MAX_MB` (15). La mail si carica con l'endpoint `/upload` di Gmail (`message/rfc822`, fino a 35 MB): il campo `raw` nel JSON reggeva solo pochi MB. Nella mail una riga sotto l'intestazione segnala l'allegato.
