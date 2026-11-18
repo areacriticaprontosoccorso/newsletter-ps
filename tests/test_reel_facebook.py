@@ -1,4 +1,5 @@
 """Reel su Facebook: stesso video di Instagram, pubblicato sulla Pagina (POCUS e EM)."""
+import itertools
 import os
 import shutil
 import sys
@@ -104,6 +105,37 @@ class Pubblicazione(unittest.TestCase):
         with mock.patch.object(ig, "_chiama", return_value={"status": {"video_status": "processing"}}), \
              mock.patch("time.sleep"):
             self.assertEqual(ig._attendi_video_facebook("V", "T", "v21.0", attesa_max=0), "")
+
+    NON_ESISTE = ('HTTP 400: {"error":{"message":"Unsupported get request. Object with ID \'1\' does not exist",'
+                  '"type":"GraphMethodException","code":100,"error_subcode":33}}')
+
+    def test_stato_non_ancora_leggibile_dopo_finish_si_riprova(self):
+        risposte = [RuntimeError(self.NON_ESISTE), RuntimeError(self.NON_ESISTE),
+                    {"status": {"video_status": "ready"}}]
+        with mock.patch.object(ig, "_chiama", side_effect=risposte), mock.patch("time.sleep"):
+            self.assertEqual(ig._attendi_video_facebook("V", "T", "v21.0", attesa_max=60), "ready")
+
+    def test_stato_mai_leggibile_e_un_avviso_non_un_errore(self):
+        with mock.patch.object(ig, "_chiama", side_effect=RuntimeError(self.NON_ESISTE)), \
+             mock.patch("time.sleep"), mock.patch.object(ig.time, "time", side_effect=itertools.count(0, 4)):
+            with self.assertLogs(ig.log, "WARNING") as lg:
+                self.assertEqual(ig._attendi_video_facebook("V", "T", "v21.0", attesa_max=10), "")
+        self.assertIn("non ne rende leggibile lo stato", lg.output[0])
+
+    def test_pubblica_reel_resta_pubblicato_se_lo_stato_non_si_legge(self):
+        def chiama(metodo, url, campi=None, *a, **k):
+            if metodo == "GET":
+                raise RuntimeError(self.NON_ESISTE)
+            return {"video_id": "V", "success": True}
+        with mock.patch.object(ig, "_chiama", chiama), mock.patch.object(ig, "_carica_video"), \
+             mock.patch.object(ig, "_durata_video", return_value=30.0), mock.patch("time.sleep"), \
+             mock.patch.object(ig.time, "time", side_effect=itertools.count(0, 400)):
+            self.assertEqual(ig.pubblica_reel_facebook(self.video, "d", "P", "T"), "V")
+
+    def test_altri_errori_di_lettura_restano_errori(self):
+        with mock.patch.object(ig, "_chiama", side_effect=RuntimeError("HTTP 401: token")), mock.patch("time.sleep"):
+            with self.assertRaises(RuntimeError):
+                ig._attendi_video_facebook("V", "T", "v21.0", attesa_max=60)
 
 
 class Instradamento(unittest.TestCase):
