@@ -846,9 +846,19 @@ def _attendi_video_facebook(video_id, token, versione, attesa_max=ATTESA_REEL_S)
     non e' ancora pronto lo dice nel log e prosegue (il Reel di solito esce comunque)."""
     scadenza = time.time() + attesa_max
     stato = ""
+    illeggibile = 0
     while time.time() < scadenza:
-        s = _chiama("GET", f"https://graph.facebook.com/{versione}/{video_id}",
-                    {"fields": "status", "access_token": token}).get("status", {})
+        try:
+            s = _chiama("GET", f"https://graph.facebook.com/{versione}/{video_id}",
+                        {"fields": "status", "access_token": token}).get("status", {})
+        except RuntimeError as e:
+            # Subito dopo «finish» Facebook a volte non conosce ancora il video (codice 100, subcode 33):
+            # la pubblicazione e' gia' stata accettata, si riprova a leggere lo stato.
+            if '"error_subcode":33' not in str(e) and "does not exist" not in str(e):
+                raise
+            illeggibile += 1
+            time.sleep(5)
+            continue
         stato = s.get("video_status", "")
         if stato == "ready":
             return stato
@@ -856,7 +866,11 @@ def _attendi_video_facebook(video_id, token, versione, attesa_max=ATTESA_REEL_S)
             errori = [str(s.get(f, {}).get("error", "")) for f in ("processing_phase", "publishing_phase")]
             raise RuntimeError(f"Facebook ha rifiutato il video (stato {stato}) {' '.join(e for e in errori if e)[:200]}")
         time.sleep(5)
-    log.warning(f"Facebook: Reel ancora in elaborazione dopo {attesa_max} s (stato '{stato}'): controllare sulla Pagina")
+    if illeggibile and not stato:
+        log.warning(f"Facebook: Reel inviato, ma Facebook non ne rende leggibile lo stato dopo {attesa_max} s "
+                    f"(video {video_id}): controllare sulla Pagina")
+    else:
+        log.warning(f"Facebook: Reel ancora in elaborazione dopo {attesa_max} s (stato '{stato}'): controllare sulla Pagina")
     return stato
 
 
