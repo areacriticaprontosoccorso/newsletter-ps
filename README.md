@@ -255,3 +255,16 @@ Ogni lunedì escono su YouTube il **podcast completo** e due **Shorts**: le sche
 - **Quota.** Ogni caricamento costa 1600 unità su 10.000 al giorno: circa 6 video al giorno. Il lunedì sono 3 video (4800 unità).
 - **Shorts.** Un Short è un video verticale fino a 3 minuti: i Reel (9:16) lo sono e portano `#Shorts` in descrizione. Il podcast completo esce come video normale, con la dichiarazione «contenuto generato con IA» (voce sintetica).
 - **Ripubblicare.** Le voci `yt_schede`, `yt_podcast`, `yt_completo` si scelgono anche nell'opzione *ripubblica_cosa*; come per le altre, ogni voce scelta viene ripubblicata (doppioni se già uscita).
+
+## LinkedIn (profilo personale)
+
+Il **podcast completo** esce anche sul tuo profilo LinkedIn, con lo stesso testo dei Reel e la nota «Voce generata con intelligenza artificiale». Moduli: `linkedin.py` (Videos API e Posts API, solo libreria standard) e `linkedin_autorizza.py`, uguali nei tre repository. Si spegne con `LI_ABILITATO = False`; senza i secret LinkedIn viene saltato. Nella ripubblicazione la voce è `li_podcast`.
+
+**Da fare una volta.**
+1. Su https://www.linkedin.com/developers/apps → *Create app*. Va associata a una pagina LinkedIn di cui sei amministratore; pubblica comunque sul tuo profilo.
+2. Scheda *Products*: aggiungi **Share on LinkedIn** e **Sign In with LinkedIn using OpenID Connect**. Sono self-serve, senza revisione.
+3. Scheda *Auth*: in *Authorized redirect URLs* aggiungi `http://localhost:8765/callback`; copia *Client ID* e *Primary Client Secret*.
+4. Sul tuo computer: `python linkedin_autorizza.py CLIENT_ID CLIENT_SECRET` (nessuna libreria da installare). Accedi a LinkedIn nel browser e consenti. Lo script stampa `LINKEDIN_TOKEN`, `LINKEDIN_AUTORE`, `LINKEDIN_SCADENZA`.
+5. Salvali come secret **dell'organizzazione** (areacriticaprontosoccorso → *Settings* → *Secrets and variables* → *Actions*), così valgono per i tre repository.
+
+**Ogni due mesi.** Il token di LinkedIn dura 60 giorni e, per le app non approvate da LinkedIn, non si rinnova da solo. Dieci giorni prima della scadenza arriva l'**avviso per email**: rifai il punto 4 e aggiorna `LINKEDIN_TOKEN` e `LINKEDIN_SCADENZA`. Se il token scade, LinkedIn viene saltato (con avviso) e il resto esce normalmente.

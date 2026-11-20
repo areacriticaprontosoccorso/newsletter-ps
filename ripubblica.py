@@ -8,7 +8,7 @@ Workflow di EM, POCUS e NIV (file identico nei tre repository), opzione `ripubbl
      di questa settimana: si riconosce dall'archivio, che ha "dry_run": false);
   2. rimette nella cartella del repo archivio/, immagini/ e podcast/ di quella corsa;
   3. rigenera le schede e i Reel con il codice attuale (codifica compresa) e pubblica solo le voci
-     di RIPUBBLICA_COSA: ig_schede, fb_schede, x, yt_schede, ig_podcast, fb_podcast, yt_podcast, yt_completo (carosello: 'carosello').
+     di RIPUBBLICA_COSA: ig_schede, fb_schede, x, yt_schede, ig_podcast, fb_podcast, yt_podcast, yt_completo, li_podcast (carosello: 'carosello').
 
 Gli articoli, il podcast e le didascalie sono quelli della corsa originale: nessuna chiamata a
 Claude o a Gemini. Con DRY_RUN=1 prepara i file senza pubblicare.
@@ -38,7 +38,7 @@ except ImportError:
 
 log = logging.getLogger("ripubblica")
 
-VOCI = ("carosello", "ig_schede", "fb_schede", "x", "yt_schede", "ig_podcast", "fb_podcast", "yt_podcast", "yt_completo")
+VOCI = ("carosello", "ig_schede", "fb_schede", "x", "yt_schede", "ig_podcast", "fb_podcast", "yt_podcast", "yt_completo", "li_podcast")
 # Voci predefinite: quelle che di solito falliscono. In config.py (RIPUBBLICA_PREDEFINITE) si adattano
 # al repository (POCUS non ha il podcast). fb_podcast non e' predefinito: ripubblicarlo crea doppioni.
 PREDEFINITE = getattr(cfg, "RIPUBBLICA_PREDEFINITE", "ig_schede,ig_podcast")

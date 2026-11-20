@@ -159,6 +159,9 @@ jobs:
           YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
           YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
           YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+          LINKEDIN_TOKEN: ${{ secrets.LINKEDIN_TOKEN }}
+          LINKEDIN_AUTORE: ${{ secrets.LINKEDIN_AUTORE }}
+          LINKEDIN_SCADENZA: ${{ secrets.LINKEDIN_SCADENZA }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           # 'success', 'failure' o vuoto (passo saltato): se non è 'success' il podcast non si tenta
           PODCAST_DIPENDENZE: ${{ steps.dipendenze_podcast.outcome || 'skipped' }}
@@ -190,6 +193,9 @@ jobs:
           YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
           YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
           YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+          LINKEDIN_TOKEN: ${{ secrets.LINKEDIN_TOKEN }}
+          LINKEDIN_AUTORE: ${{ secrets.LINKEDIN_AUTORE }}
+          LINKEDIN_SCADENZA: ${{ secrets.LINKEDIN_SCADENZA }}
         run: python ripubblica.py
 
       # Gira sempre: pubblica il post del lunedì rimandato dalla newsletter,
