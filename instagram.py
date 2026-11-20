@@ -954,6 +954,29 @@ def _reel_youtube(video, didascalia, cfg, dry_run, nome, ai=False, shorts=True):
         return None
 
 
+def _linkedin(video, didascalia, cfg, dry_run):
+    """Il podcast completo anche sul profilo LinkedIn (linkedin.py). Non nelle prove «solo
+    Instagram». Mai eccezioni. Id del post, 'dry-run' o None."""
+    try:
+        if not getattr(cfg, "LI_ABILITATO", False) or getattr(cfg, "SOLO_INSTAGRAM", False):
+            return None
+        base = (getattr(cfg, "YT_TITOLI", {}) or {}).get("completo") or getattr(cfg, "PODCAST_TITOLO", "Podcast")
+        titolo = f"{base} del {datetime.now(ZoneInfo('Europe/Rome')):%d/%m/%Y}"
+        testo = descrizione_reel_facebook(didascalia, cfg) + "\n\nVoce generata con intelligenza artificiale."
+        if dry_run:
+            with open(os.path.join(cfg.IG_DIR, "testo-linkedin.txt"), "w", encoding="utf-8") as f:
+                f.write(titolo + "\n\n" + testo + "\n")
+            log.info(f"LinkedIn (prova a vuoto): podcast completo; titolo e testo in {cfg.IG_DIR}/")
+            return "dry-run"
+        import linkedin
+        if not linkedin.configurato():
+            return None
+        return linkedin.pubblica_video(video, titolo, testo)
+    except Exception as e:
+        log.error(f"LinkedIn: video non pubblicato ({e})")
+        return None
+
+
 def _reel_x(video, didascalia, cfg, dry_run):
     """Il Reel delle schede anche su X (X_REEL = True, chiavi X_*): vedi x_social.py. Mai eccezioni."""
     try:
@@ -1041,7 +1064,7 @@ def con_credito_musica(didascalia, cfg, chiave_file="IG_MUSICA", chiave_credito=
 
 def _fa(cfg, cosa):
     """True se in questa corsa si pubblica `cosa`. cfg.SOLO_REEL (un insieme fra 'carosello',
-    'ig_schede', 'fb_schede', 'x', 'yt_schede', 'ig_podcast', 'fb_podcast', 'yt_podcast', 'yt_completo') limita la corsa a quelle voci: serve a
+    'ig_schede', 'fb_schede', 'x', 'yt_schede', 'ig_podcast', 'fb_podcast', 'yt_podcast', 'yt_completo', 'li_podcast') limita la corsa a quelle voci: serve a
     ripubblicare solo cio' che e' fallito (ripubblica.py). Vuoto o assente: tutto."""
     solo = getattr(cfg, "SOLO_REEL", None)
     return not solo or cosa in solo
@@ -1138,6 +1161,9 @@ def pubblica_reel_podcast(mp4, sezioni, didascalia, cfg, dry_run=False, saluti=N
         if mp4 and os.path.exists(mp4) and _fa(cfg, "yt_completo") and getattr(cfg, "YT_PODCAST_COMPLETO", True):
             os.makedirs(cfg.IG_DIR, exist_ok=True)
             _reel_youtube(mp4, didascalia, cfg, dry_run, "completo", ai=True, shorts=False)
+        if mp4 and os.path.exists(mp4) and _fa(cfg, "li_podcast"):
+            os.makedirs(cfg.IG_DIR, exist_ok=True)
+            _linkedin(mp4, didascalia, cfg, dry_run)
         if not getattr(cfg, "IG_ABILITATO", True) or not getattr(cfg, "IG_REEL_PODCAST", True):
             return None
         if not (_fa(cfg, "ig_podcast") or _fa(cfg, "fb_podcast") or _fa(cfg, "yt_podcast")):

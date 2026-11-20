@@ -146,6 +146,11 @@ IG_LOGHI        = "loghi/chiusura.png"
 IG_PODCAST_INTESTAZIONE = "EM Weekly Digest — il podcast della settimana {settimana}/{anno}\nUn estratto: il podcast completo arriva con la newsletter."
 IG_HASHTAG      = "#medicinadurgenza #prontosoccorso #areacritica #emergencymedicine #FOAMed #letteraturamedica"
 
+# LinkedIn (linkedin.py): il podcast completo sul profilo personale, con il testo dei Reel. Servono
+# i secret LINKEDIN_TOKEN, LINKEDIN_AUTORE e LINKEDIN_SCADENZA (linkedin_autorizza.py); senza,
+# LinkedIn viene saltato. Il token dura 60 giorni: 10 giorni prima arriva l'avviso per email.
+LI_ABILITATO     = True
+
 # Base pubblica dei file del repo (locandine dei corsi): https://.../main/<percorso>
 URL_RAW_REPO = "https://raw.githubusercontent.com/areacriticaprontosoccorso/newsletter-ps/main/"
 
